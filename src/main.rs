@@ -69,8 +69,39 @@ enum ConfigCommands {
 /// Detect API provider from key pattern.
 fn detect_api_key(text: &str) -> Option<(&'static str, String)> {
     let trimmed = text.trim();
+
+    // Explicit format: "provider:api_key" (e.g. "minimax:eyJhbG...")
+    // Supports any provider name — essential for keys without a unique prefix.
+    if let Some((provider, key)) = trimmed.split_once(':') {
+        let p = provider.to_lowercase();
+        match p.as_str() {
+            "anthropic" | "openai" | "gemini" | "grok" | "xai" | "openrouter" | "minimax" => {
+                if key.len() >= 8 {
+                    return Some((
+                        match p.as_str() {
+                            "anthropic" => "anthropic",
+                            "openai" => "openai",
+                            "gemini" => "gemini",
+                            "grok" | "xai" => "grok",
+                            "openrouter" => "openrouter",
+                            "minimax" => "minimax",
+                            _ => unreachable!(),
+                        },
+                        key.to_string(),
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Auto-detect from key prefix
     if trimmed.starts_with("sk-ant-") {
         Some(("anthropic", trimmed.to_string()))
+    } else if trimmed.starts_with("sk-or-") {
+        Some(("openrouter", trimmed.to_string()))
+    } else if trimmed.starts_with("xai-") {
+        Some(("grok", trimmed.to_string()))
     } else if trimmed.starts_with("sk-") {
         Some(("openai", trimmed.to_string()))
     } else if trimmed.starts_with("AIzaSy") {
@@ -85,7 +116,10 @@ fn default_model(provider_name: &str) -> &'static str {
     match provider_name {
         "anthropic" => "claude-sonnet-4-6",
         "openai" => "gpt-5.2",
-        "gemini" => "gemini-3-flash-preview",
+        "gemini" => "gemini-2.5-flash",
+        "grok" | "xai" => "grok-4-1-fast-non-reasoning",
+        "openrouter" => "anthropic/claude-sonnet-4-6",
+        "minimax" => "MiniMax-M2.5",
         _ => "claude-sonnet-4-6",
     }
 }
@@ -123,7 +157,12 @@ Welcome to SkyClaw!\n\n\
 To get started, paste your API key from any of these providers:\n\n\
 - Anthropic (starts with sk-ant-)\n\
 - OpenAI (starts with sk-)\n\
-- Google Gemini (starts with AIzaSy)\n\n\
+- Google Gemini (starts with AIzaSy)\n\
+- xAI Grok (starts with xai-)\n\
+- OpenRouter (starts with sk-or-)\n\
+- MiniMax: paste as minimax:YOUR_KEY\n\n\
+For any provider, you can also use the format provider:key\n\
+(e.g. openrouter:sk-or-xxx or minimax:eyJhbG...)\n\n\
 Just paste the key here and I'll handle the rest.";
 
 const SYSTEM_PROMPT: &str = "\
@@ -155,8 +194,8 @@ SELF-CONFIGURATION:\n\
 Your config lives at ~/.skyclaw/credentials.toml (provider, api_key, model). \
 You can read and edit this file to change your own settings. For example, \
 if the user says 'change model to claude-opus-4-6', edit credentials.toml \
-and confirm. Changes take effect on next restart. Tell the user they can \
-configure you through natural language — just ask.";
+and confirm. Changes take effect immediately — SkyClaw auto-reloads after \
+each response. Tell the user they can configure you through natural language.";
 
 // ── Stop-command detection ─────────────────────────────────
 fn is_stop_command(text: &str) -> bool {
@@ -423,6 +462,7 @@ async fn main() -> Result<()> {
                     api_key: Some(key.clone()),
                     model: Some(model.clone()),
                     base_url: config.provider.base_url.clone(),
+                    extra_headers: config.provider.extra_headers.clone(),
                 };
                 let provider: Arc<dyn skyclaw_core::Provider> =
                     Arc::from(skyclaw_providers::create_provider(&provider_config)?);
@@ -668,6 +708,40 @@ async fn main() -> Result<()> {
                                                 let _ = sender.send_message(error_reply).await;
                                             }
                                         }
+
+                                        // ── Hot-reload: check if credentials changed ────
+                                        if let Some((new_name, new_key, new_model)) = load_saved_credentials() {
+                                            let current_model = agent.model().to_string();
+                                            if new_model != current_model {
+                                                tracing::info!(
+                                                    old_model = %current_model,
+                                                    new_model = %new_model,
+                                                    "Credentials changed — hot-reloading agent"
+                                                );
+                                                let reload_config = skyclaw_core::types::config::ProviderConfig {
+                                                    name: Some(new_name.clone()),
+                                                    api_key: Some(new_key),
+                                                    model: Some(new_model.clone()),
+                                                    base_url: base_url.clone(),
+                                                    extra_headers: std::collections::HashMap::new(),
+                                                };
+                                                if let Ok(new_provider) = skyclaw_providers::create_provider(&reload_config) {
+                                                    let new_agent = Arc::new(skyclaw_agent::AgentRuntime::with_limits(
+                                                        Arc::from(new_provider),
+                                                        memory.clone(),
+                                                        tools_template.clone(),
+                                                        new_model.clone(),
+                                                        sys_prompt.clone(),
+                                                        max_turns,
+                                                        max_ctx,
+                                                        max_rounds,
+                                                        max_task_duration,
+                                                    ));
+                                                    *agent_state.write().await = Some(new_agent);
+                                                    tracing::info!(provider = %new_name, model = %new_model, "Agent hot-reloaded");
+                                                }
+                                            }
+                                        }
                                     } else {
                                         // ── Onboarding mode: detect API key ────
                                         let msg_text = msg.text.as_deref().unwrap_or("");
@@ -679,6 +753,7 @@ async fn main() -> Result<()> {
                                                 api_key: Some(api_key.clone()),
                                                 model: Some(model.clone()),
                                                 base_url: base_url.clone(),
+                                                extra_headers: std::collections::HashMap::new(),
                                             };
 
                                             match skyclaw_providers::create_provider(&provider_config) {
@@ -870,4 +945,122 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── detect_api_key: auto-detect from prefix ──────────────────────
+
+    #[test]
+    fn detect_anthropic_key() {
+        let result = detect_api_key("sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA");
+        assert_eq!(result.unwrap().0, "anthropic");
+    }
+
+    #[test]
+    fn detect_openai_key() {
+        let result = detect_api_key("sk-proj-abcdefghijklmnopqrstuv");
+        assert_eq!(result.unwrap().0, "openai");
+    }
+
+    #[test]
+    fn detect_openrouter_key() {
+        let result = detect_api_key("sk-or-v1-abcdefghijklmnopqrstuv");
+        assert_eq!(result.unwrap().0, "openrouter");
+    }
+
+    #[test]
+    fn detect_grok_key() {
+        let result = detect_api_key("xai-abcdefghijklmnopqrstuvwxyz");
+        assert_eq!(result.unwrap().0, "grok");
+    }
+
+    #[test]
+    fn detect_gemini_key() {
+        let result = detect_api_key("AIzaSyA-abcdefghijklmnopqrstu");
+        assert_eq!(result.unwrap().0, "gemini");
+    }
+
+    #[test]
+    fn detect_unknown_key_returns_none() {
+        assert!(detect_api_key("unknown-key-format-here").is_none());
+    }
+
+    // ── detect_api_key: explicit provider:key format ─────────────────
+
+    #[test]
+    fn explicit_minimax_key() {
+        let result = detect_api_key("minimax:eyJhbGciOiJSUzI1NiIsInR5cCI6");
+        let (provider, key) = result.unwrap();
+        assert_eq!(provider, "minimax");
+        assert_eq!(key, "eyJhbGciOiJSUzI1NiIsInR5cCI6");
+    }
+
+    #[test]
+    fn explicit_openrouter_key() {
+        let result = detect_api_key("openrouter:sk-or-v1-abcdefghijklm");
+        let (provider, key) = result.unwrap();
+        assert_eq!(provider, "openrouter");
+        assert_eq!(key, "sk-or-v1-abcdefghijklm");
+    }
+
+    #[test]
+    fn explicit_grok_with_xai_alias() {
+        let result = detect_api_key("xai:some-long-api-key-value");
+        let (provider, key) = result.unwrap();
+        assert_eq!(provider, "grok");
+        assert_eq!(key, "some-long-api-key-value");
+    }
+
+    #[test]
+    fn explicit_format_case_insensitive() {
+        let result = detect_api_key("MiniMax:eyJhbGciOiJSUzI1NiIsInR5cCI6");
+        assert_eq!(result.unwrap().0, "minimax");
+    }
+
+    #[test]
+    fn explicit_format_short_key_rejected() {
+        // Key must be at least 8 chars
+        assert!(detect_api_key("minimax:short").is_none());
+    }
+
+    #[test]
+    fn explicit_unknown_provider_falls_through() {
+        // Unknown provider name falls through to prefix detection
+        assert!(detect_api_key("fakeprovider:some-key-value").is_none());
+    }
+
+    // ── detect_api_key: ordering (specific before generic) ───────────
+
+    #[test]
+    fn openrouter_not_misdetected_as_openai() {
+        let result = detect_api_key("sk-or-v1-abcdefghijklmnopqrstuv");
+        assert_eq!(result.unwrap().0, "openrouter");
+    }
+
+    #[test]
+    fn anthropic_not_misdetected_as_openai() {
+        let result = detect_api_key("sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAA");
+        assert_eq!(result.unwrap().0, "anthropic");
+    }
+
+    // ── default_model ────────────────────────────────────────────────
+
+    #[test]
+    fn default_models_all_providers() {
+        assert_eq!(default_model("anthropic"), "claude-sonnet-4-6");
+        assert_eq!(default_model("openai"), "gpt-5.2");
+        assert_eq!(default_model("gemini"), "gemini-2.5-flash");
+        assert_eq!(default_model("grok"), "grok-4-1-fast-non-reasoning");
+        assert_eq!(default_model("xai"), "grok-4-1-fast-non-reasoning");
+        assert_eq!(default_model("openrouter"), "anthropic/claude-sonnet-4-6");
+        assert_eq!(default_model("minimax"), "MiniMax-M2.5");
+    }
+
+    #[test]
+    fn default_model_unknown_falls_back() {
+        assert_eq!(default_model("unknown"), "claude-sonnet-4-6");
+    }
 }

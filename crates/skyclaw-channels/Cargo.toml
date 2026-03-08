@@ -10,7 +10,6 @@ description = "Messaging channel integrations for SkyClaw"
 telegram = ["dep:teloxide", "dep:reqwest"]
 discord = ["dep:serenity", "dep:poise", "dep:reqwest"]
 slack = ["dep:reqwest"]
-whatsapp = ["dep:reqwest"]
 
 [dependencies]
 skyclaw-core.workspace = true
@@ -34,7 +33,7 @@ teloxide = { workspace = true, optional = true }
 serenity = { workspace = true, optional = true }
 poise = { workspace = true, optional = true }
 
-# Optional: Slack & WhatsApp (also used by Telegram for file downloads)
+# Optional: Slack (also used by Telegram for file downloads)
 reqwest = { workspace = true, optional = true, features = ["multipart"] }
 
 [dev-dependencies]

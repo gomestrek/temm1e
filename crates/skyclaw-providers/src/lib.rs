@@ -3,6 +3,10 @@
 //! LLM provider integrations. Currently supports:
 //! - **Anthropic** (Claude models via the Messages API)
 //! - **OpenAI-compatible** (OpenAI, Ollama, vLLM, LM Studio, Groq, Mistral, etc.)
+//! - **xAI Grok** (via OpenAI-compatible endpoint)
+//! - **OpenRouter** (290+ models via OpenAI-compatible endpoint)
+//! - **MiniMax** (via OpenAI-compatible endpoint)
+//! - **Google Gemini** (via OpenAI-compatible endpoint)
 
 #![allow(dead_code)]
 
@@ -19,10 +23,14 @@ use skyclaw_core::Provider;
 /// Create a provider from configuration.
 ///
 /// The `name` field in `ProviderConfig` determines which backend to use:
-/// - `"anthropic"` -> `AnthropicProvider`
-/// - `"openai"` | `"openai-compatible"` | anything else -> `OpenAICompatProvider`
+/// - `"anthropic"` -> `AnthropicProvider` (native Messages API)
+/// - `"gemini"` -> `OpenAICompatProvider` with Google's OpenAI-compatible endpoint
+/// - `"grok"` | `"xai"` -> `OpenAICompatProvider` with `https://api.x.ai/v1`
+/// - `"openrouter"` -> `OpenAICompatProvider` with `https://openrouter.ai/api/v1`
+/// - `"minimax"` -> `OpenAICompatProvider` with `https://api.minimax.io/v1`
+/// - anything else -> `OpenAICompatProvider` (defaults to OpenAI)
 ///
-/// `api_key` must be set. `base_url` is optional (defaults depend on provider).
+/// `api_key` must be set. `base_url` is optional (overrides the preset default).
 pub fn create_provider(config: &ProviderConfig) -> Result<Box<dyn Provider>, SkyclawError> {
     let name = config.name.as_deref().unwrap_or("openai-compatible");
 
@@ -40,16 +48,47 @@ pub fn create_provider(config: &ProviderConfig) -> Result<Box<dyn Provider>, Sky
             Ok(Box::new(provider))
         }
         "gemini" => {
-            // Google Gemini via their OpenAI-compatible endpoint
             let base_url = config.base_url.clone().unwrap_or_else(|| {
                 "https://generativelanguage.googleapis.com/v1beta/openai".to_string()
             });
-            let provider = OpenAICompatProvider::new(api_key).with_base_url(base_url);
+            let provider = OpenAICompatProvider::new(api_key)
+                .with_base_url(base_url)
+                .with_extra_headers(config.extra_headers.clone());
+            Ok(Box::new(provider))
+        }
+        "grok" | "xai" => {
+            let base_url = config
+                .base_url
+                .clone()
+                .unwrap_or_else(|| "https://api.x.ai/v1".to_string());
+            let provider = OpenAICompatProvider::new(api_key)
+                .with_base_url(base_url)
+                .with_extra_headers(config.extra_headers.clone());
+            Ok(Box::new(provider))
+        }
+        "openrouter" => {
+            let base_url = config
+                .base_url
+                .clone()
+                .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
+            let provider = OpenAICompatProvider::new(api_key)
+                .with_base_url(base_url)
+                .with_extra_headers(config.extra_headers.clone());
+            Ok(Box::new(provider))
+        }
+        "minimax" => {
+            let base_url = config
+                .base_url
+                .clone()
+                .unwrap_or_else(|| "https://api.minimax.io/v1".to_string());
+            let provider = OpenAICompatProvider::new(api_key)
+                .with_base_url(base_url)
+                .with_extra_headers(config.extra_headers.clone());
             Ok(Box::new(provider))
         }
         _ => {
-            // Treat everything else as OpenAI-compatible
-            let mut provider = OpenAICompatProvider::new(api_key);
+            let mut provider = OpenAICompatProvider::new(api_key)
+                .with_extra_headers(config.extra_headers.clone());
             if let Some(ref base_url) = config.base_url {
                 provider = provider.with_base_url(base_url.clone());
             }
@@ -61,28 +100,51 @@ pub fn create_provider(config: &ProviderConfig) -> Result<Box<dyn Provider>, Sky
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
-    #[test]
-    fn create_anthropic_provider() {
-        let config = ProviderConfig {
-            name: Some("anthropic".to_string()),
+    fn config_with_name(name: &str) -> ProviderConfig {
+        ProviderConfig {
+            name: Some(name.to_string()),
             api_key: Some("test-key".to_string()),
             model: None,
             base_url: None,
-        };
-        let provider = create_provider(&config).unwrap();
+            extra_headers: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn create_anthropic_provider() {
+        let provider = create_provider(&config_with_name("anthropic")).unwrap();
         assert_eq!(provider.name(), "anthropic");
     }
 
     #[test]
     fn create_openai_provider() {
-        let config = ProviderConfig {
-            name: Some("openai".to_string()),
-            api_key: Some("test-key".to_string()),
-            model: None,
-            base_url: None,
-        };
-        let provider = create_provider(&config).unwrap();
+        let provider = create_provider(&config_with_name("openai")).unwrap();
+        assert_eq!(provider.name(), "openai-compatible");
+    }
+
+    #[test]
+    fn create_grok_provider() {
+        let provider = create_provider(&config_with_name("grok")).unwrap();
+        assert_eq!(provider.name(), "openai-compatible");
+    }
+
+    #[test]
+    fn create_xai_provider() {
+        let provider = create_provider(&config_with_name("xai")).unwrap();
+        assert_eq!(provider.name(), "openai-compatible");
+    }
+
+    #[test]
+    fn create_openrouter_provider() {
+        let provider = create_provider(&config_with_name("openrouter")).unwrap();
+        assert_eq!(provider.name(), "openai-compatible");
+    }
+
+    #[test]
+    fn create_minimax_provider() {
+        let provider = create_provider(&config_with_name("minimax")).unwrap();
         assert_eq!(provider.name(), "openai-compatible");
     }
 
@@ -93,6 +155,7 @@ mod tests {
             api_key: Some("test-key".to_string()),
             model: None,
             base_url: None,
+            extra_headers: HashMap::new(),
         };
         let provider = create_provider(&config).unwrap();
         assert_eq!(provider.name(), "openai-compatible");
@@ -105,6 +168,7 @@ mod tests {
             api_key: None,
             model: None,
             base_url: None,
+            extra_headers: HashMap::new(),
         };
         assert!(create_provider(&config).is_err());
     }

@@ -9,16 +9,19 @@ use skyclaw_core::types::message::{
     StreamChunk, ToolDefinition, Usage,
 };
 use skyclaw_core::Provider;
+use std::collections::HashMap;
 use tracing::{debug, error};
 
 /// OpenAI-compatible provider.
 ///
-/// Works with OpenAI, Ollama, vLLM, LM Studio, Groq, Mistral, and any other
-/// service that implements the OpenAI Chat Completions API.
+/// Works with OpenAI, Ollama, vLLM, LM Studio, Groq, Mistral, xAI Grok,
+/// OpenRouter, MiniMax, and any other service that implements the OpenAI
+/// Chat Completions API.
 pub struct OpenAICompatProvider {
     client: Client,
     api_key: String,
     base_url: String,
+    extra_headers: HashMap<String, String>,
 }
 
 impl OpenAICompatProvider {
@@ -27,11 +30,17 @@ impl OpenAICompatProvider {
             client: Client::new(),
             api_key,
             base_url: "https://api.openai.com/v1".to_string(),
+            extra_headers: HashMap::new(),
         }
     }
 
     pub fn with_base_url(mut self, base_url: String) -> Self {
         self.base_url = base_url.trim_end_matches('/').to_string();
+        self
+    }
+
+    pub fn with_extra_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.extra_headers = headers;
         self
     }
 
@@ -365,11 +374,15 @@ impl Provider for OpenAICompatProvider {
 
         debug!(provider = "openai-compat", model = %request.model, base_url = %self.base_url, "Sending completion request");
 
-        let response = self
+        let mut req = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
+            .header("Content-Type", "application/json");
+        for (k, v) in &self.extra_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let response = req
             .json(&body)
             .send()
             .await
@@ -447,11 +460,15 @@ impl Provider for OpenAICompatProvider {
 
         debug!(provider = "openai-compat", model = %request.model, "Sending streaming request");
 
-        let response = self
+        let mut req = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
+            .header("Content-Type", "application/json");
+        for (k, v) in &self.extra_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let response = req
             .json(&body)
             .send()
             .await
@@ -520,10 +537,14 @@ impl Provider for OpenAICompatProvider {
     }
 
     async fn health_check(&self) -> Result<bool, SkyclawError> {
-        let resp = self
+        let mut req = self
             .client
             .get(format!("{}/models", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Authorization", format!("Bearer {}", self.api_key));
+        for (k, v) in &self.extra_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| SkyclawError::Provider(format!("Health check failed: {e}")))?;
@@ -532,10 +553,14 @@ impl Provider for OpenAICompatProvider {
     }
 
     async fn list_models(&self) -> Result<Vec<String>, SkyclawError> {
-        let resp = self
+        let mut req = self
             .client
             .get(format!("{}/models", self.base_url))
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Authorization", format!("Bearer {}", self.api_key));
+        for (k, v) in &self.extra_headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| SkyclawError::Provider(format!("Failed to list models: {e}")))?;
@@ -603,6 +628,18 @@ fn extract_openai_sse_event(
         };
 
         for choice in &chunk.choices {
+            // Check for mid-stream error first (OpenRouter sends finish_reason: "error")
+            if choice.finish_reason.as_deref() == Some("error") {
+                let error_text = choice
+                    .delta
+                    .content
+                    .as_deref()
+                    .unwrap_or("Unknown mid-stream error from provider");
+                return Some(Err(SkyclawError::Provider(format!(
+                    "Mid-stream provider error: {error_text}"
+                ))));
+            }
+
             // Handle tool call deltas (accumulate)
             if let Some(ref tc_deltas) = choice.delta.tool_calls {
                 for tc in tc_deltas {
@@ -880,5 +917,75 @@ mod tests {
         let provider = OpenAICompatProvider::new("key".to_string())
             .with_base_url("https://api.example.com/v1/".to_string());
         assert_eq!(provider.base_url, "https://api.example.com/v1");
+    }
+
+    #[test]
+    fn with_extra_headers() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("HTTP-Referer".to_string(), "https://myapp.com".to_string());
+        headers.insert("X-Title".to_string(), "SkyClaw".to_string());
+        let provider = OpenAICompatProvider::new("key".to_string())
+            .with_extra_headers(headers);
+        assert_eq!(provider.extra_headers.len(), 2);
+        assert_eq!(provider.extra_headers["HTTP-Referer"], "https://myapp.com");
+    }
+
+    #[test]
+    fn sse_comment_lines_ignored() {
+        // OpenRouter sends `: OPENROUTER PROCESSING` as SSE keepalive comments.
+        // These must be ignored by the parser.
+        let mut buffer = ": OPENROUTER PROCESSING\n\ndata: {\"id\":\"1\",\"choices\":[{\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}]}\n\n".to_string();
+        let mut tool_calls = Vec::new();
+
+        let result = extract_openai_sse_event(&mut buffer, &mut tool_calls);
+        assert!(result.is_some());
+        let chunk = result.unwrap().unwrap();
+        assert_eq!(chunk.delta.as_deref(), Some("Hi"));
+    }
+
+    #[test]
+    fn sse_multiple_comment_lines_ignored() {
+        // Multiple keepalive comments before actual data
+        let mut buffer = ": OPENROUTER PROCESSING\n\n: OPENROUTER PROCESSING\n\ndata: {\"id\":\"1\",\"choices\":[{\"delta\":{\"content\":\"OK\"},\"finish_reason\":null}]}\n\n".to_string();
+        let mut tool_calls = Vec::new();
+
+        let result = extract_openai_sse_event(&mut buffer, &mut tool_calls);
+        assert!(result.is_some());
+        let chunk = result.unwrap().unwrap();
+        assert_eq!(chunk.delta.as_deref(), Some("OK"));
+    }
+
+    #[test]
+    fn sse_midstream_error_finish_reason() {
+        // OpenRouter sends finish_reason: "error" for mid-stream provider errors
+        let mut buffer = "data: {\"id\":\"1\",\"choices\":[{\"delta\":{\"content\":\"upstream timeout\"},\"finish_reason\":\"error\"}]}\n\n".to_string();
+        let mut tool_calls = Vec::new();
+
+        let result = extract_openai_sse_event(&mut buffer, &mut tool_calls);
+        assert!(result.is_some());
+        let err = result.unwrap().unwrap_err();
+        match err {
+            SkyclawError::Provider(msg) => {
+                assert!(msg.contains("Mid-stream provider error"));
+                assert!(msg.contains("upstream timeout"));
+            }
+            other => panic!("expected Provider error, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sse_midstream_error_without_content() {
+        let mut buffer = "data: {\"id\":\"1\",\"choices\":[{\"delta\":{},\"finish_reason\":\"error\"}]}\n\n".to_string();
+        let mut tool_calls = Vec::new();
+
+        let result = extract_openai_sse_event(&mut buffer, &mut tool_calls);
+        assert!(result.is_some());
+        let err = result.unwrap().unwrap_err();
+        match err {
+            SkyclawError::Provider(msg) => {
+                assert!(msg.contains("Mid-stream provider error"));
+            }
+            other => panic!("expected Provider error, got: {other:?}"),
+        }
     }
 }

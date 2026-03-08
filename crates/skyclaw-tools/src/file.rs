@@ -257,6 +257,30 @@ impl Tool for FileListTool {
 
 /// Resolve a path string relative to the workspace directory.
 fn resolve_path(path_str: &str, workspace: &std::path::Path) -> std::path::PathBuf {
+    // Expand ~ to user's home directory (works on macOS, Linux, and containers)
+    if path_str.starts_with("~/") || path_str == "~" {
+        let suffix = if path_str.len() > 2 {
+            &path_str[2..]
+        } else {
+            ""
+        };
+        if let Some(home) = dirs::home_dir() {
+            return home.join(suffix);
+        }
+        // Fallback: try $HOME env var directly (some containers set HOME but
+        // don't populate /etc/passwd which dirs::home_dir reads on Linux)
+        if let Ok(home) = std::env::var("HOME") {
+            return std::path::PathBuf::from(home).join(suffix);
+        }
+    }
+
+    // Expand $HOME/... if used explicitly in path
+    if path_str.starts_with("$HOME/") || path_str.starts_with("$HOME\\") {
+        if let Ok(home) = std::env::var("HOME") {
+            return std::path::PathBuf::from(home).join(&path_str[6..]);
+        }
+    }
+
     let path = std::path::Path::new(path_str);
     if path.is_absolute() {
         path.to_path_buf()

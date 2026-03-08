@@ -19,6 +19,7 @@ async-trait.workspace = true
 reqwest.workspace = true
 bytes.workspace = true
 chrono.workspace = true
+dirs.workspace = true
 
 # Optional: Browser automation
 chromiumoxide = { workspace = true, optional = true }

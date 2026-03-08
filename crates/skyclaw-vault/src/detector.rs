@@ -40,13 +40,25 @@ static PROVIDER_PATTERNS: LazyLock<Vec<ProviderPattern>> = LazyLock::new(|| {
             provider: "anthropic",
         },
         ProviderPattern {
+            // OpenRouter keys: sk-or- prefix, must be checked before generic sk-*.
+            regex: Regex::new(r"(sk-or-[A-Za-z0-9_\-]{20,})").unwrap(),
+            key: "openrouter_api_key",
+            provider: "openrouter",
+        },
+        ProviderPattern {
             // OpenAI keys: sk- followed by at least 20 alnum/dash chars.
-            // We match all sk-* and later filter out sk-ant-* (handled by
-            // the Anthropic pattern which runs first and populates
+            // We match all sk-* and later filter out sk-ant-* and sk-or-*
+            // (handled by earlier patterns which run first and populate
             // `seen_values`).
             regex: Regex::new(r"(sk-[A-Za-z0-9_\-]{20,})").unwrap(),
             key: "openai_api_key",
             provider: "openai",
+        },
+        ProviderPattern {
+            // xAI Grok keys: xai- prefix.
+            regex: Regex::new(r"(xai-[A-Za-z0-9_\-]{20,})").unwrap(),
+            key: "xai_api_key",
+            provider: "grok",
         },
         ProviderPattern {
             regex: Regex::new(r"(gsk_[A-Za-z0-9_\-]{20,})").unwrap(),
@@ -55,8 +67,8 @@ static PROVIDER_PATTERNS: LazyLock<Vec<ProviderPattern>> = LazyLock::new(|| {
         },
         ProviderPattern {
             regex: Regex::new(r"(AIza[A-Za-z0-9_\-]{20,})").unwrap(),
-            key: "google_api_key",
-            provider: "google",
+            key: "gemini_api_key",
+            provider: "gemini",
         },
         ProviderPattern {
             regex: Regex::new(r"(xoxb-[A-Za-z0-9\-]{20,})").unwrap(),
@@ -175,10 +187,26 @@ mod tests {
     }
 
     #[test]
-    fn detect_google() {
+    fn detect_gemini() {
         let input = "AIzaSyA-abcdefghijklmnopqrstu";
         let creds = detect_credentials(input);
-        assert_eq!(creds[0].provider, "google");
+        assert_eq!(creds[0].provider, "gemini");
+    }
+
+    #[test]
+    fn detect_xai_grok() {
+        let input = "xai-abcdefghijklmnopqrstuvwx";
+        let creds = detect_credentials(input);
+        assert_eq!(creds.len(), 1);
+        assert_eq!(creds[0].provider, "grok");
+        assert_eq!(creds[0].key, "xai_api_key");
+    }
+
+    #[test]
+    fn detect_openrouter() {
+        let input = "sk-or-v1-abcdefghijklmnopqrstu";
+        let creds = detect_credentials(input);
+        assert!(creds.iter().any(|c| c.provider == "openrouter"));
     }
 
     #[test]

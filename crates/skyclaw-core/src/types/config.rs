@@ -96,6 +96,9 @@ pub struct ProviderConfig {
     pub api_key: Option<String>,
     pub model: Option<String>,
     pub base_url: Option<String>,
+    /// Extra HTTP headers sent with every provider request (e.g. OpenRouter attribution).
+    #[serde(default)]
+    pub extra_headers: HashMap<String, String>,
 }
 
 impl std::fmt::Debug for ProviderConfig {
@@ -598,6 +601,7 @@ mod tests {
                 api_key: Some("sk-test".to_string()),
                 model: Some("claude-sonnet-4-6".to_string()),
                 base_url: None,
+                extra_headers: HashMap::new(),
             },
             memory: MemoryConfig::default(),
             vault: VaultConfig::default(),

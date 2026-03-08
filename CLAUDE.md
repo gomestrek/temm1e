@@ -50,7 +50,7 @@ crates/
   skyclaw-gateway     -- HTTP/WebSocket server, routing, session management
   skyclaw-agent       -- Agent runtime loop, context, executor
   skyclaw-providers   -- AI provider integrations (Anthropic, OpenAI-compatible)
-  skyclaw-channels    -- Messaging channels (CLI, Telegram, Discord, Slack, WhatsApp)
+  skyclaw-channels    -- Messaging channels (CLI, Telegram, Discord, Slack)
   skyclaw-memory      -- Persistent memory backends (SQLite, Markdown)
   skyclaw-tools       -- Agent tool implementations (shell, browser, file ops)
   skyclaw-vault       -- Secret storage with ChaCha20-Poly1305 encryption
@@ -69,7 +69,7 @@ src/
 
 2. **No cross-implementation dependencies**: Leaf crates (providers, channels, tools, memory backends) must never depend on each other. Shared types live in `skyclaw-core`.
 
-3. **Feature flags for optional dependencies**: Platform-specific channels (Telegram, Discord, Slack, WhatsApp) and tools (browser) are behind Cargo feature flags. Never import their SDKs unconditionally.
+3. **Feature flags for optional dependencies**: Platform-specific channels (Telegram, Discord, Slack) and tools (browser) are behind Cargo feature flags. Never import their SDKs unconditionally.
 
 4. **Factory pattern**: Each crate exposes a `create_*()` factory function (e.g., `create_channel()`, `create_provider()`, `create_memory_backend()`) that dispatches by name string.
 

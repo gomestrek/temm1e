@@ -27,8 +27,8 @@ No web dashboards. No config files to edit. Deploy, paste your API key in Telegr
 | **Implemented features** | 35 across 7 phases |
 | **AGENTIC CORE modules** | 20 |
 | **Traits (core)** | 13 shared trait definitions |
-| **AI providers** | 3 (Anthropic, OpenAI, Gemini) |
-| **Messaging channels** | 5 (Telegram, Discord, Slack, WhatsApp, CLI) |
+| **AI providers** | 6 (Anthropic, OpenAI, Gemini, Grok, OpenRouter, MiniMax) |
+| **Messaging channels** | 4 (Telegram, Discord, Slack, CLI) |
 | **Agent tools** | 7 (shell, browser, file ops, web fetch, git, messaging, file transfer) |
 | **Encryption** | ChaCha20-Poly1305 + Ed25519 |
 | **Memory backends** | 3 (SQLite, Markdown, failover) |
@@ -63,7 +63,7 @@ export TELEGRAM_BOT_TOKEN="your-token-here"
 
 1. Open your bot in Telegram
 2. Send any message — SkyClaw asks for your API key
-3. Paste your key (Anthropic, OpenAI, or Gemini)
+3. Paste your API key (Anthropic, OpenAI, Gemini, Grok, or OpenRouter)
 4. SkyClaw validates it against the real API and goes online
 
 ## Supported Providers
@@ -74,17 +74,19 @@ Paste any of these API keys in Telegram — SkyClaw detects the provider automat
 |------------|----------|---------------|
 | `sk-ant-*` | Anthropic | claude-sonnet-4-6 |
 | `sk-*` | OpenAI | gpt-5.2 |
-| `AIzaSy*` | Google Gemini | gemini-3-flash-preview |
+| `AIzaSy*` | Google Gemini | gemini-2.5-flash |
+| `xai-*` | xAI Grok | grok-4-1-fast-non-reasoning |
+| `sk-or-*` | OpenRouter | anthropic/claude-sonnet-4-6 |
+| *(config only)* | MiniMax | MiniMax-M2.5 |
 
 ## Channels
 
-| Channel | Status | Feature Flag |
-|---------|--------|-------------|
-| **Telegram** | Production | `telegram` |
-| **Discord** | Production | `discord` |
-| **Slack** | Production | `slack` |
-| **WhatsApp** | Production | `whatsapp` |
-| **CLI** | Built-in | — |
+| Channel | Status | Feature Flag | Setup Guide |
+|---------|--------|-------------|-------------|
+| **Telegram** | Production | `telegram` | [docs/channels/telegram.md](docs/channels/telegram.md) |
+| **Discord** | Production | `discord` | [docs/channels/discord.md](docs/channels/discord.md) |
+| **Slack** | Production | `slack` | [docs/channels/slack.md](docs/channels/slack.md) |
+| **CLI** | Built-in | — | [docs/channels/cli.md](docs/channels/cli.md) |
 
 ## Tools
 
@@ -132,7 +134,7 @@ skyclaw (binary)
 ├── skyclaw-gateway      HTTP server, health, dashboard, OAuth identity
 ├── skyclaw-agent        AGENTIC CORE (20 modules)
 ├── skyclaw-providers    Anthropic, OpenAI-compatible
-├── skyclaw-channels     Telegram, Discord, Slack, WhatsApp, CLI
+├── skyclaw-channels     Telegram, Discord, Slack, CLI
 ├── skyclaw-memory       SQLite + Markdown with failover
 ├── skyclaw-vault        ChaCha20-Poly1305 encrypted secrets
 ├── skyclaw-tools        Shell, browser, file ops, web fetch, git
