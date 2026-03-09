@@ -1032,6 +1032,9 @@ async fn main() -> Result<()> {
                             let worker_chat_id = chat_id.clone();
 
                             tokio::spawn(async move {
+                                // Persistent conversation history for this chat — survives across messages
+                                let mut persistent_history: Vec<skyclaw_core::types::message::ChatMessage> = Vec::new();
+
                                 while let Some(mut msg) = chat_rx.recv().await {
                                     let is_hb = msg.channel == "heartbeat";
                                     is_heartbeat_clone.store(is_hb, Ordering::Relaxed);
@@ -1178,7 +1181,7 @@ async fn main() -> Result<()> {
                                             user_id: msg.user_id.clone(),
                                             channel: msg.channel.clone(),
                                             chat_id: msg.chat_id.clone(),
-                                            history: Vec::new(),
+                                            history: persistent_history.clone(),
                                             workspace_path: workspace_path.clone(),
                                         };
 
@@ -1198,6 +1201,14 @@ async fn main() -> Result<()> {
                                                 };
                                                 let _ = sender.send_message(error_reply).await;
                                             }
+                                        }
+
+                                        // ── Persist session history for next message ────
+                                        // Cap to last 200 messages to prevent unbounded memory growth
+                                        persistent_history = session.history;
+                                        if persistent_history.len() > 200 {
+                                            let drain_count = persistent_history.len() - 200;
+                                            persistent_history.drain(..drain_count);
                                         }
 
                                         // ── Hot-reload: check if credentials changed ────
