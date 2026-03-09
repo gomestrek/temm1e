@@ -10,14 +10,14 @@
   <a href="https://github.com/nagisanzenin/skyclaw/stargazers"><img src="https://img.shields.io/github/stars/nagisanzenin/skyclaw?style=flat&color=gold&logo=github" alt="GitHub Stars"></a>
   <a href="https://discord.gg/3ux2c5xz"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License">
-  <img src="https://img.shields.io/badge/version-1.3.0-blue.svg" alt="Version">
-  <img src="https://img.shields.io/badge/tests-1027-green.svg" alt="1027 tests">
+  <img src="https://img.shields.io/badge/version-1.4.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/tests-1061-green.svg" alt="1061 tests">
   <img src="https://img.shields.io/badge/providers-6-red.svg" alt="6 providers">
 </p>
 
 # SkyClaw
 
-Hyper-performance (Rust) & self-sustaining claw that lives indefinitely in Cloud. 40K lines, 1027 tests, zero warnings.
+Hyper-performance (Rust) & self-sustaining claw that lives indefinitely in Cloud. 42K lines, 1061 tests, zero warnings.
 
 ## What It Does
 
@@ -29,16 +29,17 @@ No web dashboards. No config files to edit. Deploy, paste your API key in Telegr
 
 | Metric | Value |
 |--------|-------|
-| **Lines of Rust** | 40,810 across 96 source files |
-| **Tests** | 1,027 passing, 0 failures |
+| **Lines of Rust** | 42,687 across 98 source files |
+| **Tests** | 1,061 passing, 0 failures |
 | **Clippy warnings** | 0 (CI gate: `-D warnings`) |
 | **Workspace crates** | 13 + 1 binary |
-| **Implemented features** | 43 across 8 phases |
+| **Implemented features** | 46 across 9 phases |
 | **AGENTIC CORE modules** | 20 |
 | **Traits (core)** | 13 shared trait definitions |
 | **AI providers** | 6 (Anthropic, OpenAI, Gemini, Grok, OpenRouter, MiniMax) |
 | **Messaging channels** | 4 ([Telegram](docs/channels/telegram.md), [Discord](docs/channels/discord.md), [Slack](docs/channels/slack.md), [CLI](docs/channels/cli.md)) |
-| **Agent tools** | 7 (shell, browser, file ops, web fetch, git, messaging, file transfer) |
+| **Agent tools** | 8 (shell, browser, file ops, web fetch, git, messaging, file transfer, memory manage) |
+| **Budget tracking** | Per-session cost enforcement with configurable limits |
 | **Encryption** | ChaCha20-Poly1305 + Ed25519 |
 | **Memory backends** | 3 (SQLite, Markdown, failover) |
 | **File storage** | 2 (local, S3/R2) |
@@ -127,6 +128,7 @@ Paste any of these API keys in Telegram — SkyClaw detects the provider automat
 | **Git** | Clone, pull, push, commit, branch, diff, log |
 | **Messaging** | Send real-time updates during multi-step tasks |
 | **File transfer** | Send/receive files through messaging channels |
+| **Memory manage** | Persistent knowledge CRUD — remember, recall, forget, update, list |
 
 ## AGENTIC CORE
 
@@ -207,7 +209,7 @@ skyclaw version            Show version info
 ```bash
 cargo check --workspace                                    # Quick compilation check
 cargo build --workspace                                    # Debug build
-cargo test --workspace                                     # Run all 1027 tests
+cargo test --workspace                                     # Run all 1061 tests
 cargo clippy --workspace --all-targets --all-features -- -D warnings  # Lint (0 warnings)
 cargo fmt --all                                            # Format
 cargo build --release                                      # Release build
@@ -222,6 +224,8 @@ cargo build --release                                      # Release build
 ## Release Timeline
 
 ```
+2026-03-09  v1.4.0  ●━━━ Persistent memory & budget — memory_manage tool (CRUD), knowledge auto-injection, budget tracking, CLI chat, 1061 tests
+                    │
 2026-03-09  v1.3.0  ●━━━ Hyper-performance — 4-layer key validation, dynamic system prompt, placeholder defense, 1027 tests
                     │
 2026-03-09  v1.2.0  ●━━━ Stealth browser — anti-detection patches, session persistence, credential deletion, 1012 tests

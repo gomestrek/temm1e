@@ -65,7 +65,11 @@ impl OpenAICompatProvider {
         let old = self.key_index.fetch_add(1, Ordering::Relaxed);
         let new_idx = (old + 1) % self.keys.len();
         if self.keys.len() > 1 {
-            info!(new_index = new_idx, total_keys = self.keys.len(), "Rotated API key");
+            info!(
+                new_index = new_idx,
+                total_keys = self.keys.len(),
+                "Rotated API key"
+            );
         }
     }
 
@@ -474,6 +478,7 @@ impl Provider for OpenAICompatProvider {
             .map(|u| Usage {
                 input_tokens: u.prompt_tokens,
                 output_tokens: u.completion_tokens,
+                cost_usd: 0.0,
             })
             .unwrap_or_default();
 

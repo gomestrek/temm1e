@@ -90,14 +90,23 @@ impl Memory for SqliteMemory {
         query: &str,
         opts: SearchOpts,
     ) -> Result<Vec<MemoryEntry>, SkyclawError> {
-        // Build a LIKE-based keyword search for v0.1.
-        let like_pattern = format!("%{query}%");
+        // Split multi-word queries into individual word matches (AND logic).
+        // Each word is matched against both content AND id fields.
+        // This handles cases like "cat name" matching "cat's name" in content.
+        let words: Vec<&str> = query.split_whitespace().collect();
 
         let mut sql = String::from(
             "SELECT id, content, metadata, timestamp, session_id, entry_type \
-             FROM memory_entries WHERE content LIKE ?",
+             FROM memory_entries WHERE 1=1",
         );
-        let mut bind_values: Vec<String> = vec![like_pattern];
+        let mut bind_values: Vec<String> = Vec::new();
+
+        for word in &words {
+            sql.push_str(" AND (content LIKE ? OR id LIKE ?)");
+            let pattern = format!("%{word}%");
+            bind_values.push(pattern.clone());
+            bind_values.push(pattern);
+        }
 
         if let Some(ref session) = opts.session_filter {
             sql.push_str(" AND session_id = ?");
@@ -229,6 +238,7 @@ fn entry_type_to_str(et: &MemoryEntryType) -> &'static str {
         MemoryEntryType::LongTerm => "long_term",
         MemoryEntryType::DailyLog => "daily_log",
         MemoryEntryType::Skill => "skill",
+        MemoryEntryType::Knowledge => "knowledge",
     }
 }
 
@@ -238,6 +248,7 @@ fn str_to_entry_type(s: &str) -> Result<MemoryEntryType, SkyclawError> {
         "long_term" => Ok(MemoryEntryType::LongTerm),
         "daily_log" => Ok(MemoryEntryType::DailyLog),
         "skill" => Ok(MemoryEntryType::Skill),
+        "knowledge" => Ok(MemoryEntryType::Knowledge),
         other => Err(SkyclawError::Memory(format!("Unknown entry type: {other}"))),
     }
 }

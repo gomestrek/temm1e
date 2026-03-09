@@ -20,6 +20,7 @@ use skyclaw_core::types::message::{
     ChatMessage, CompletionRequest, ContentPart, MessageContent, Role, ToolDefinition,
 };
 use skyclaw_core::types::session::SessionContext;
+use skyclaw_core::MemoryEntryType;
 use skyclaw_core::{Memory, SearchOpts, Tool};
 use tracing::debug;
 
@@ -157,10 +158,70 @@ pub async fn build_context(
         }
     }
 
+    // ── Category 5b: Persistent knowledge entries (auto-inject) ────
+    // Inject top knowledge entries so the agent has context from previous
+    // conversations without needing to explicitly recall them.
+    let mut knowledge_messages: Vec<ChatMessage> = Vec::new();
+    let mut knowledge_tokens_used = 0;
+    {
+        let knowledge_budget = memory_budget.saturating_sub(memory_tokens_used).min(2000);
+        let knowledge_opts = SearchOpts {
+            limit: 10,
+            entry_type_filter: Some(MemoryEntryType::Knowledge),
+            ..Default::default()
+        };
+
+        match memory.search("", knowledge_opts).await {
+            Err(e) => {
+                debug!(error = %e, "Knowledge search failed");
+            }
+            Ok(entries) => {
+                debug!(
+                    count = entries.len(),
+                    knowledge_budget = knowledge_budget,
+                    "Knowledge search returned entries"
+                );
+                let knowledge_entries: Vec<_> = entries
+                    .iter()
+                    .filter(|e| matches!(e.entry_type, MemoryEntryType::Knowledge))
+                    .collect();
+                if !knowledge_entries.is_empty() {
+                    let knowledge_text: String = knowledge_entries
+                        .iter()
+                        .map(|e| {
+                            let key = e
+                                .metadata
+                                .get("user_key")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?");
+                            format!("- {}: {}", key, e.content)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    let tokens = estimate_tokens(&knowledge_text) + 10;
+                    if tokens <= knowledge_budget && !knowledge_text.is_empty() {
+                        knowledge_messages.push(ChatMessage {
+                            role: Role::System,
+                            content: MessageContent::Text(format!(
+                                "=== YOUR PERSISTENT KNOWLEDGE ===\n\
+                             These are facts you previously saved with memory_manage:\n\
+                             {}\n\
+                             === END KNOWLEDGE ===",
+                                knowledge_text
+                            )),
+                        });
+                        knowledge_tokens_used = tokens;
+                    }
+                }
+            }
+        }
+    }
+
     // ── Category 6: Cross-task learnings (up to 5% of budget) ──────
     let learning_budget = ((budget as f32) * LEARNING_BUDGET_FRACTION) as usize;
     let remaining_for_learnings =
-        available_after_fixed_and_recent.saturating_sub(memory_tokens_used);
+        available_after_fixed_and_recent.saturating_sub(memory_tokens_used + knowledge_tokens_used);
     let learning_budget = learning_budget.min(remaining_for_learnings);
 
     let mut learning_messages: Vec<ChatMessage> = Vec::new();
@@ -198,7 +259,11 @@ pub async fn build_context(
     }
 
     // ── Category 7: Older conversation history ─────────────────────
-    let used_tokens = fixed_tokens + recent_tokens + memory_tokens_used + learning_tokens_used;
+    let used_tokens = fixed_tokens
+        + recent_tokens
+        + memory_tokens_used
+        + knowledge_tokens_used
+        + learning_tokens_used;
     let history_budget = budget.saturating_sub(used_tokens);
 
     // Trim to max_turns first
@@ -244,19 +309,18 @@ pub async fn build_context(
     // full history (which is dominated by tool outputs). This is injected
     // as a System message so the LLM never loses track of what the human
     // actually said, even when tool outputs consume most of the context.
-    let all_messages_for_digest: Vec<&ChatMessage> = kept_older
-        .iter()
-        .chain(recent_messages.iter())
-        .collect();
+    let all_messages_for_digest: Vec<&ChatMessage> =
+        kept_older.iter().chain(recent_messages.iter()).collect();
     let chat_digest = build_chat_digest(&all_messages_for_digest);
 
     // ── Assemble final message list ────────────────────────────────
-    // Order: summary → chat digest → memory → learnings → older history → recent messages
+    // Order: summary → chat digest → knowledge → memory → learnings → older history → recent messages
     let mut messages: Vec<ChatMessage> = Vec::new();
     messages.extend(summary_messages);
     if let Some(digest_msg) = chat_digest {
         messages.push(digest_msg);
     }
+    messages.extend(knowledge_messages);
     messages.extend(memory_messages);
     messages.extend(learning_messages);
     messages.extend(kept_older);
@@ -269,6 +333,7 @@ pub async fn build_context(
         tools = tool_def_tokens,
         recent = recent_tokens,
         memory = memory_tokens_used,
+        knowledge = knowledge_tokens_used,
         learnings = learning_tokens_used,
         history = older_tokens_used,
         total = total_tokens,

@@ -83,11 +83,24 @@ fn is_placeholder_key(key: &str) -> bool {
     }
     // Common placeholders users might paste from docs/examples/READMEs
     let placeholders = [
-        "paste_your", "your_key", "your_api", "your-key", "your-api",
-        "insert_your", "insert-your", "put_your", "put-your",
-        "replace_with", "replace-with", "enter_your", "enter-your",
-        "placeholder", "xxxxxxxx", "your_token", "your-token",
-        "_here",  // catches PASTE_YOUR_KEY_HERE, PUT_KEY_HERE, etc.
+        "paste_your",
+        "your_key",
+        "your_api",
+        "your-key",
+        "your-api",
+        "insert_your",
+        "insert-your",
+        "put_your",
+        "put-your",
+        "replace_with",
+        "replace-with",
+        "enter_your",
+        "enter-your",
+        "placeholder",
+        "xxxxxxxx",
+        "your_token",
+        "your-token",
+        "_here", // catches PASTE_YOUR_KEY_HERE, PUT_KEY_HERE, etc.
     ];
     for p in &placeholders {
         if k.contains(p) {
@@ -206,15 +219,35 @@ fn detect_api_key(text: &str) -> Option<DetectedCredential> {
         return None;
     }
     if trimmed.starts_with("sk-ant-") {
-        Some(DetectedCredential { provider: "anthropic", api_key: trimmed.to_string(), base_url: None })
+        Some(DetectedCredential {
+            provider: "anthropic",
+            api_key: trimmed.to_string(),
+            base_url: None,
+        })
     } else if trimmed.starts_with("sk-or-") {
-        Some(DetectedCredential { provider: "openrouter", api_key: trimmed.to_string(), base_url: None })
+        Some(DetectedCredential {
+            provider: "openrouter",
+            api_key: trimmed.to_string(),
+            base_url: None,
+        })
     } else if trimmed.starts_with("xai-") {
-        Some(DetectedCredential { provider: "grok", api_key: trimmed.to_string(), base_url: None })
+        Some(DetectedCredential {
+            provider: "grok",
+            api_key: trimmed.to_string(),
+            base_url: None,
+        })
     } else if trimmed.starts_with("sk-") {
-        Some(DetectedCredential { provider: "openai", api_key: trimmed.to_string(), base_url: None })
+        Some(DetectedCredential {
+            provider: "openai",
+            api_key: trimmed.to_string(),
+            base_url: None,
+        })
     } else if trimmed.starts_with("AIzaSy") {
-        Some(DetectedCredential { provider: "gemini", api_key: trimmed.to_string(), base_url: None })
+        Some(DetectedCredential {
+            provider: "gemini",
+            api_key: trimmed.to_string(),
+            base_url: None,
+        })
     } else {
         None
     }
@@ -451,11 +484,19 @@ fn load_saved_credentials() -> Option<(String, String, String)> {
         .find(|p| p.name == creds.active)
         .or_else(|| creds.providers.first())?;
     // Find the first non-placeholder key
-    let first_valid_key = provider.keys.iter().find(|k| !is_placeholder_key(k))?.clone();
+    let first_valid_key = provider
+        .keys
+        .iter()
+        .find(|k| !is_placeholder_key(k))?
+        .clone();
     if provider.name.is_empty() || first_valid_key.is_empty() {
         return None;
     }
-    Some((provider.name.clone(), first_valid_key, provider.model.clone()))
+    Some((
+        provider.name.clone(),
+        first_valid_key,
+        provider.model.clone(),
+    ))
 }
 
 /// Load all keys for the active provider.
@@ -468,7 +509,9 @@ fn load_active_provider_keys() -> Option<(String, Vec<String>, String, Option<St
         .find(|p| p.name == creds.active)
         .or_else(|| creds.providers.first())?;
     // Filter out placeholders
-    let valid_keys: Vec<String> = provider.keys.iter()
+    let valid_keys: Vec<String> = provider
+        .keys
+        .iter()
         .filter(|k| !is_placeholder_key(k))
         .cloned()
         .collect();
@@ -515,7 +558,8 @@ You have full access to these tools:\n\
 - browser: control a real Chrome browser (navigate, click, type, screenshot, \
   get_text, evaluate JS, get_html) — use this for any website interaction\n\
 - send_message: send real-time messages to the user during tasks\n\
-- send_file: send files to the user\n\n\
+- send_file: send files to the user\n\
+- memory_manage: your persistent knowledge store (remember/recall/forget/update/list)\n\n\
 KEY RULES:\n\
 - Shell output (stdout/stderr) is NOT visible to the user. Only YOUR \
   final text reply and send_message calls reach the user.\n\
@@ -530,7 +574,21 @@ KEY RULES:\n\
 - Be concise. No emoji unless the user uses them.\n\
 - NEVER give up on a task by explaining limitations. You have a multi-round \
   tool loop — keep calling tools until the task is done or you hit a real \
-  error. Do not stop early to explain what you 'cannot' do.";
+  error. Do not stop early to explain what you 'cannot' do.\n\n\
+PERSISTENT MEMORY:\n\
+You have a persistent knowledge store via the memory_manage tool. Use it to:\n\
+- Remember important facts the user tells you (name, preferences, project details)\n\
+- Save useful context that should persist across conversations\n\
+- Recall previously saved knowledge when relevant to the conversation\n\
+When to use memory_manage:\n\
+- When the user explicitly asks you to remember something\n\
+- When you learn an important fact about the user or their project\n\
+- When the user corrects you — update the relevant memory\n\
+- When you need context from a previous conversation\n\
+CRITICAL: After EVERY remember/update/forget action, you MUST tell the user \
+what you did. For example: 'I've remembered that your name is Alice' or \
+'I've updated the project status to completed' or 'I've forgotten the old API endpoint'. \
+Never silently save or delete memories.";
 
 /// Build the full system prompt with dynamic provider/model context.
 /// This ensures the bot always knows what's actually configured.
@@ -543,7 +601,9 @@ fn build_system_prompt() -> String {
     prompt.push_str("- openai: gpt-5.2, gpt-4.1, gpt-4.1-mini, o4-mini\n");
     prompt.push_str("- gemini: gemini-2.5-flash, gemini-2.5-pro\n");
     prompt.push_str("- grok (xai): grok-4-1-fast-non-reasoning, grok-3\n");
-    prompt.push_str("- openrouter: any model via anthropic/claude-sonnet-4-6, openai/gpt-5.2, etc.\n");
+    prompt.push_str(
+        "- openrouter: any model via anthropic/claude-sonnet-4-6, openai/gpt-5.2, etc.\n",
+    );
     prompt.push_str("- minimax: MiniMax-M2.5\n");
 
     // ── Current configuration ─────────────────────────────────
@@ -565,7 +625,8 @@ fn build_system_prompt() -> String {
     }
 
     // ── Self-configuration rules ──────────────────────────────
-    prompt.push_str("\n\
+    prompt.push_str(
+        "\n\
 SELF-CONFIGURATION:\n\
 Your config lives at ~/.skyclaw/credentials.toml.\n\
 To change the active provider or model, edit ONLY the 'active' field or 'model' \
@@ -576,7 +637,8 @@ Changes take effect immediately — SkyClaw validates the key and auto-reloads \
 after each response. If a key is invalid, the switch is rejected and the \
 current provider stays active.\n\
 Users can add keys anytime by pasting them in chat. SkyClaw auto-detects the \
-provider and validates before saving.");
+provider and validates before saving.",
+    );
 
     prompt
 }
@@ -831,6 +893,7 @@ async fn main() -> Result<()> {
                 &config.tools,
                 primary_channel.clone(),
                 Some(pending_messages.clone()),
+                Some(memory.clone()),
             );
             tracing::info!(count = tools.len(), "Tools initialized");
 
@@ -846,37 +909,42 @@ async fn main() -> Result<()> {
                     tracing::warn!(provider = %pname, "Primary API key is a placeholder — starting in onboarding mode");
                     // Fall through to onboarding
                 } else {
-                // Load all keys and saved base_url for this provider
-                let (all_keys, saved_base_url) = load_active_provider_keys()
-                    .map(|(_, keys, _, burl)| {
-                        let valid: Vec<String> = keys.into_iter().filter(|k| !is_placeholder_key(k)).collect();
-                        (valid, burl)
-                    })
-                    .unwrap_or_else(|| (vec![key.clone()], None));
-                let effective_base_url = saved_base_url.or_else(|| config.provider.base_url.clone());
-                let provider_config = skyclaw_core::types::config::ProviderConfig {
-                    name: Some(pname.clone()),
-                    api_key: Some(key.clone()),
-                    keys: all_keys,
-                    model: Some(model.clone()),
-                    base_url: effective_base_url,
-                    extra_headers: config.provider.extra_headers.clone(),
-                };
-                let provider: Arc<dyn skyclaw_core::Provider> =
-                    Arc::from(skyclaw_providers::create_provider(&provider_config)?);
-                let agent = Arc::new(skyclaw_agent::AgentRuntime::with_limits(
-                    provider.clone(),
-                    memory.clone(),
-                    tools.clone(),
-                    model.clone(),
-                    system_prompt.clone(),
-                    config.agent.max_turns,
-                    config.agent.max_context_tokens,
-                    config.agent.max_tool_rounds,
-                    config.agent.max_task_duration_secs,
-                ));
-                *agent_state.write().await = Some(agent);
-                tracing::info!(provider = %pname, model = %model, "Agent initialized");
+                    // Load all keys and saved base_url for this provider
+                    let (all_keys, saved_base_url) = load_active_provider_keys()
+                        .map(|(_, keys, _, burl)| {
+                            let valid: Vec<String> = keys
+                                .into_iter()
+                                .filter(|k| !is_placeholder_key(k))
+                                .collect();
+                            (valid, burl)
+                        })
+                        .unwrap_or_else(|| (vec![key.clone()], None));
+                    let effective_base_url =
+                        saved_base_url.or_else(|| config.provider.base_url.clone());
+                    let provider_config = skyclaw_core::types::config::ProviderConfig {
+                        name: Some(pname.clone()),
+                        api_key: Some(key.clone()),
+                        keys: all_keys,
+                        model: Some(model.clone()),
+                        base_url: effective_base_url,
+                        extra_headers: config.provider.extra_headers.clone(),
+                    };
+                    let provider: Arc<dyn skyclaw_core::Provider> =
+                        Arc::from(skyclaw_providers::create_provider(&provider_config)?);
+                    let agent = Arc::new(skyclaw_agent::AgentRuntime::with_limits(
+                        provider.clone(),
+                        memory.clone(),
+                        tools.clone(),
+                        model.clone(),
+                        system_prompt.clone(),
+                        config.agent.max_turns,
+                        config.agent.max_context_tokens,
+                        config.agent.max_tool_rounds,
+                        config.agent.max_task_duration_secs,
+                        config.agent.max_spend_usd,
+                    ));
+                    *agent_state.write().await = Some(agent);
+                    tracing::info!(provider = %pname, model = %model, "Agent initialized");
                 }
             } else {
                 tracing::info!("No API key — starting in onboarding mode");
@@ -945,6 +1013,7 @@ async fn main() -> Result<()> {
                 let agent_max_context_tokens = config.agent.max_context_tokens;
                 let agent_max_tool_rounds = config.agent.max_tool_rounds;
                 let agent_max_task_duration = config.agent.max_task_duration_secs;
+                let agent_max_spend_usd = config.agent.max_spend_usd;
                 let provider_base_url = config.provider.base_url.clone();
                 let ws_path = workspace_path.clone();
                 let pending_clone = pending_messages.clone();
@@ -1023,6 +1092,7 @@ async fn main() -> Result<()> {
                             let max_ctx = agent_max_context_tokens;
                             let max_rounds = agent_max_tool_rounds;
                             let max_task_duration = agent_max_task_duration;
+                            let max_spend = agent_max_spend_usd;
                             let base_url = provider_base_url.clone();
                             let sender = sender.clone();
                             let workspace_path = ws_path.clone();
@@ -1091,6 +1161,7 @@ async fn main() -> Result<()> {
                                                                 max_ctx,
                                                                 max_rounds,
                                                                 max_task_duration,
+                                                                max_spend,
                                                             ));
                                                             *agent_state.write().await = Some(new_agent);
                                                             let key_count = keys.len();
@@ -1252,6 +1323,7 @@ async fn main() -> Result<()> {
                                                                 max_ctx,
                                                                 max_rounds,
                                                                 max_task_duration,
+                                                                max_spend,
                                                             ));
                                                             *agent_state.write().await = Some(new_agent);
                                                             tracing::info!(provider = %new_name, model = %new_model, "Agent hot-reloaded (key validated)");
@@ -1313,6 +1385,7 @@ async fn main() -> Result<()> {
                                                                 max_ctx,
                                                                 max_rounds,
                                                                 max_task_duration,
+                                                                max_spend,
                                                             ));
                                                             *agent_state.write().await = Some(new_agent);
 
@@ -1439,7 +1512,149 @@ async fn main() -> Result<()> {
         }
         Commands::Chat => {
             println!("SkyClaw interactive chat");
-            println!("Type 'exit' to quit.");
+            println!("Type '/quit' or '/exit' to quit.\n");
+
+            // ── Resolve API credentials ────────────────────────
+            let credentials: Option<(String, String, String)> = {
+                if let Some(ref key) = config.provider.api_key {
+                    if !key.is_empty() && !key.starts_with("${") {
+                        let name = config
+                            .provider
+                            .name
+                            .clone()
+                            .unwrap_or_else(|| "anthropic".to_string());
+                        let model = config
+                            .provider
+                            .model
+                            .clone()
+                            .unwrap_or_else(|| default_model(&name).to_string());
+                        Some((name, key.clone(), model))
+                    } else {
+                        load_saved_credentials()
+                    }
+                } else {
+                    load_saved_credentials()
+                }
+            };
+
+            let (pname, key, model) = match credentials {
+                Some(c) => c,
+                None => {
+                    eprintln!("No API key configured. Set ANTHROPIC_API_KEY or run 'skyclaw start' to onboard.");
+                    std::process::exit(1);
+                }
+            };
+
+            if is_placeholder_key(&key) {
+                eprintln!(
+                    "API key is a placeholder. Provide a real key via config or environment."
+                );
+                std::process::exit(1);
+            }
+
+            // ── Memory backend ─────────────────────────────────
+            let memory_url = config.memory.path.clone().unwrap_or_else(|| {
+                let data_dir = dirs::home_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join(".skyclaw");
+                std::fs::create_dir_all(&data_dir).ok();
+                format!("sqlite:{}/memory.db?mode=rwc", data_dir.display())
+            });
+            let memory: Arc<dyn skyclaw_core::Memory> = Arc::from(
+                skyclaw_memory::create_memory_backend(&config.memory.backend, &memory_url).await?,
+            );
+
+            // ── CLI channel ────────────────────────────────────
+            let workspace = dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join(".skyclaw")
+                .join("workspace");
+            std::fs::create_dir_all(&workspace).ok();
+            let mut cli_channel = skyclaw_channels::CliChannel::new(workspace.clone());
+            let cli_rx = cli_channel.take_receiver();
+            cli_channel.start().await?;
+            let cli_arc: Arc<dyn skyclaw_core::Channel> = Arc::new(cli_channel);
+
+            // ── Tools ──────────────────────────────────────────
+            let pending_messages: skyclaw_tools::PendingMessages =
+                Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+            let tools = skyclaw_tools::create_tools(
+                &config.tools,
+                Some(cli_arc.clone()),
+                Some(pending_messages.clone()),
+                Some(memory.clone()),
+            );
+
+            // ── Provider ───────────────────────────────────────
+            let (all_keys, saved_base_url) = load_active_provider_keys()
+                .map(|(_, keys, _, burl)| {
+                    let valid: Vec<String> = keys
+                        .into_iter()
+                        .filter(|k| !is_placeholder_key(k))
+                        .collect();
+                    (valid, burl)
+                })
+                .unwrap_or_else(|| (vec![key.clone()], None));
+            let effective_base_url = saved_base_url.or_else(|| config.provider.base_url.clone());
+            let provider_config = skyclaw_core::types::config::ProviderConfig {
+                name: Some(pname.clone()),
+                api_key: Some(key.clone()),
+                keys: all_keys,
+                model: Some(model.clone()),
+                base_url: effective_base_url,
+                extra_headers: config.provider.extra_headers.clone(),
+            };
+            let provider: Arc<dyn skyclaw_core::Provider> =
+                Arc::from(skyclaw_providers::create_provider(&provider_config)?);
+
+            // ── Agent ──────────────────────────────────────────
+            let system_prompt = Some(build_system_prompt());
+            let agent = skyclaw_agent::AgentRuntime::with_limits(
+                provider,
+                memory.clone(),
+                tools,
+                model.clone(),
+                system_prompt,
+                config.agent.max_turns,
+                config.agent.max_context_tokens,
+                config.agent.max_tool_rounds,
+                config.agent.max_task_duration_secs,
+                config.agent.max_spend_usd,
+            );
+
+            println!("Connected to {} (model: {})", pname, model);
+            println!("Budget: ${:.2} per session", config.agent.max_spend_usd);
+            println!("---\n");
+
+            // ── Message loop ───────────────────────────────────
+            let mut rx = cli_rx.expect("CLI channel receiver must be available");
+            let mut history: Vec<skyclaw_core::types::message::ChatMessage> = Vec::new();
+
+            while let Some(msg) = rx.recv().await {
+                let mut session = skyclaw_core::types::session::SessionContext {
+                    session_id: "cli-cli".to_string(),
+                    user_id: msg.user_id.clone(),
+                    channel: msg.channel.clone(),
+                    chat_id: msg.chat_id.clone(),
+                    history: history.clone(),
+                    workspace_path: workspace.clone(),
+                };
+
+                match agent.process_message(&msg, &mut session, None, None).await {
+                    Ok(reply) => {
+                        cli_arc.send_message(reply).await.ok();
+                    }
+                    Err(e) => {
+                        eprintln!("  [error: {}]", e);
+                        eprint!("skyclaw> ");
+                    }
+                }
+
+                // Preserve conversation history across messages
+                history = session.history;
+            }
+
+            println!("\nSkyClaw chat ended.");
         }
         Commands::Status => {
             println!("SkyClaw Status");
@@ -1586,7 +1801,10 @@ mod tests {
 
     #[test]
     fn proxy_with_key_value_format() {
-        let result = detect_api_key("proxy provider:openai base_url:https://my-proxy.com/v1 key:sk-test-key-12345678").unwrap();
+        let result = detect_api_key(
+            "proxy provider:openai base_url:https://my-proxy.com/v1 key:sk-test-key-12345678",
+        )
+        .unwrap();
         assert_eq!(result.provider, "openai");
         assert_eq!(result.api_key, "sk-test-key-12345678");
         assert_eq!(result.base_url.unwrap(), "https://my-proxy.com/v1");
@@ -1594,7 +1812,8 @@ mod tests {
 
     #[test]
     fn proxy_with_positional_format() {
-        let result = detect_api_key("proxy openai https://my-proxy.com/v1 sk-test-key-12345678").unwrap();
+        let result =
+            detect_api_key("proxy openai https://my-proxy.com/v1 sk-test-key-12345678").unwrap();
         assert_eq!(result.provider, "openai");
         assert_eq!(result.api_key, "sk-test-key-12345678");
         assert_eq!(result.base_url.unwrap(), "https://my-proxy.com/v1");
@@ -1602,7 +1821,10 @@ mod tests {
 
     #[test]
     fn proxy_with_url_alias() {
-        let result = detect_api_key("proxy provider:anthropic url:https://claude-proxy.com/v1 key:sk-ant-test1234").unwrap();
+        let result = detect_api_key(
+            "proxy provider:anthropic url:https://claude-proxy.com/v1 key:sk-ant-test1234",
+        )
+        .unwrap();
         assert_eq!(result.provider, "anthropic");
         assert_eq!(result.base_url.unwrap(), "https://claude-proxy.com/v1");
     }
@@ -1667,12 +1889,14 @@ mod tests {
 
     #[test]
     fn placeholder_key_accepts_real_keys() {
-        assert!(!is_placeholder_key("sk-ant-api03-abc123def456ghi789jkl012mno345pqr678stu"));
+        assert!(!is_placeholder_key(
+            "sk-ant-api03-abc123def456ghi789jkl012mno345pqr678stu"
+        ));
         assert!(!is_placeholder_key("sk-proj-abcdefghijklmnopqrstuv"));
         assert!(!is_placeholder_key("sk-or-v1-abcdefghijklmnopqrstuv"));
         assert!(!is_placeholder_key("xai-abcdefghijklmnopqrstuvwxyz"));
         assert!(!is_placeholder_key("AIzaSyA-abcdefghijklmnopqrstu"));
-        assert!(!is_placeholder_key("sk-test-key-12345678"));  // valid test fixture format
+        assert!(!is_placeholder_key("sk-test-key-12345678")); // valid test fixture format
     }
 
     #[test]

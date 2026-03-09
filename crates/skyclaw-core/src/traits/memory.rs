@@ -13,12 +13,13 @@ pub struct MemoryEntry {
     pub entry_type: MemoryEntryType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum MemoryEntryType {
     Conversation,
     LongTerm,
     DailyLog,
     Skill,
+    Knowledge,
 }
 
 /// Search options for memory queries

@@ -18,6 +18,7 @@ use tracing::{debug, info, warn};
 /// Image MIME types that vision-capable models can process.
 const IMAGE_MIME_TYPES: &[&str] = &["image/jpeg", "image/png", "image/gif", "image/webp"];
 
+use crate::budget::{self, BudgetTracker, ModelPricing};
 use crate::circuit_breaker::CircuitBreaker;
 use crate::context::build_context;
 use crate::done_criteria::{self, DoneCriteria};
@@ -51,6 +52,10 @@ pub struct AgentRuntime {
     max_consecutive_failures: usize,
     /// Optional persistent task queue for checkpointing (None = no persistence).
     task_queue: Option<Arc<TaskQueue>>,
+    /// Per-session budget tracker.
+    budget: BudgetTracker,
+    /// Pricing for the current model.
+    model_pricing: ModelPricing,
 }
 
 impl AgentRuntime {
@@ -62,6 +67,7 @@ impl AgentRuntime {
         model: String,
         system_prompt: Option<String>,
     ) -> Self {
+        let model_pricing = budget::get_pricing(&model);
         Self {
             provider,
             memory,
@@ -76,6 +82,8 @@ impl AgentRuntime {
             verification_enabled: true,
             max_consecutive_failures: 2,
             task_queue: None,
+            budget: BudgetTracker::new(0.0),
+            model_pricing,
         }
     }
 
@@ -91,7 +99,9 @@ impl AgentRuntime {
         max_context_tokens: usize,
         max_tool_rounds: usize,
         max_task_duration_secs: u64,
+        max_spend_usd: f64,
     ) -> Self {
+        let model_pricing = budget::get_pricing(&model);
         Self {
             provider,
             memory,
@@ -106,6 +116,8 @@ impl AgentRuntime {
             verification_enabled: true,
             max_consecutive_failures: 2,
             task_queue: None,
+            budget: BudgetTracker::new(max_spend_usd),
+            model_pricing,
         }
     }
 
@@ -329,6 +341,16 @@ impl AgentRuntime {
                 "Sending completion request"
             );
 
+            // Check budget before calling provider
+            if let Err(budget_err) = self.budget.check_budget() {
+                return Ok(OutboundMessage {
+                    chat_id: msg.chat_id.clone(),
+                    text: budget_err,
+                    reply_to: Some(msg.id.clone()),
+                    parse_mode: Some(ParseMode::Plain),
+                });
+            }
+
             // Check circuit breaker before calling provider
             if !self.circuit_breaker.can_execute() {
                 warn!("Circuit breaker is open — provider appears to be down");
@@ -350,6 +372,18 @@ impl AgentRuntime {
                     return Err(e);
                 }
             };
+
+            // Record usage and cost
+            let call_cost = budget::calculate_cost(
+                response.usage.input_tokens,
+                response.usage.output_tokens,
+                &self.model_pricing,
+            );
+            self.budget.record_usage(
+                response.usage.input_tokens,
+                response.usage.output_tokens,
+                call_cost,
+            );
 
             // Separate text content from tool-use content
             let mut text_parts: Vec<String> = Vec::new();

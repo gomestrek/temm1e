@@ -45,6 +45,7 @@ impl MockProvider {
                 usage: Usage {
                     input_tokens: 10,
                     output_tokens: 20,
+                    cost_usd: 0.0,
                 },
             },
             call_count: Arc::new(Mutex::new(0)),
@@ -66,6 +67,7 @@ impl MockProvider {
                 usage: Usage {
                     input_tokens: 10,
                     output_tokens: 30,
+                    cost_usd: 0.0,
                 },
             },
             call_count: Arc::new(Mutex::new(0)),

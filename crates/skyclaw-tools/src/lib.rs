@@ -5,6 +5,7 @@ mod browser;
 mod check_messages;
 mod file;
 mod git;
+mod memory_manage;
 mod send_file;
 mod send_message;
 mod shell;
@@ -15,22 +16,25 @@ pub use browser::BrowserTool;
 pub use check_messages::{CheckMessagesTool, PendingMessages};
 pub use file::{FileListTool, FileReadTool, FileWriteTool};
 pub use git::GitTool;
+pub use memory_manage::MemoryManageTool;
 pub use send_file::SendFileTool;
 pub use send_message::SendMessageTool;
 pub use shell::ShellTool;
 pub use web_fetch::WebFetchTool;
 
 use skyclaw_core::types::config::ToolsConfig;
-use skyclaw_core::{Channel, Tool};
+use skyclaw_core::{Channel, Memory, Tool};
 use std::sync::Arc;
 
 /// Create tools based on the configuration flags.
-/// Pass an optional channel for file transfer tools and an optional
-/// pending-message queue for the check_messages tool.
+/// Pass an optional channel for file transfer tools, an optional
+/// pending-message queue for the check_messages tool, and an optional
+/// memory backend for the memory_manage tool.
 pub fn create_tools(
     config: &ToolsConfig,
     channel: Option<Arc<dyn Channel>>,
     pending_messages: Option<PendingMessages>,
+    memory: Option<Arc<dyn Memory>>,
 ) -> Vec<Arc<dyn Tool>> {
     let mut tools: Vec<Arc<dyn Tool>> = Vec::new();
 
@@ -66,6 +70,11 @@ pub fn create_tools(
     // check_messages: lets agent peek at pending user messages during tasks
     if let Some(pending) = pending_messages {
         tools.push(Arc::new(CheckMessagesTool::new(pending)));
+    }
+
+    // memory_manage: persistent knowledge store for the agent
+    if let Some(mem) = memory {
+        tools.push(Arc::new(MemoryManageTool::new(mem)));
     }
 
     // browser: headless Chrome automation (stealth mode)

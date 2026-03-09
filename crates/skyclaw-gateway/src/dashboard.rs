@@ -642,6 +642,7 @@ mod tests {
             20_000,
             100,
             600,
+            1.0,
         ));
         let state = Arc::new(AppState {
             channels: Vec::new(),

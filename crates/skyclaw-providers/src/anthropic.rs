@@ -52,7 +52,11 @@ impl AnthropicProvider {
         let old = self.key_index.fetch_add(1, Ordering::Relaxed);
         let new_idx = (old + 1) % self.keys.len();
         if self.keys.len() > 1 {
-            info!(new_index = new_idx, total_keys = self.keys.len(), "Rotated API key");
+            info!(
+                new_index = new_idx,
+                total_keys = self.keys.len(),
+                "Rotated API key"
+            );
         }
     }
 
@@ -331,6 +335,7 @@ impl Provider for AnthropicProvider {
             usage: Usage {
                 input_tokens: api_response.usage.input_tokens,
                 output_tokens: api_response.usage.output_tokens,
+                cost_usd: 0.0,
             },
         })
     }

@@ -367,6 +367,9 @@ pub struct AgentConfig {
     /// Whether to send tool-lifecycle status updates to the user (default: true).
     #[serde(default = "default_true")]
     pub streaming_tool_updates: bool,
+    /// Maximum total USD spend allowed per session (0.0 = unlimited).
+    #[serde(default = "default_max_spend_usd")]
+    pub max_spend_usd: f64,
 }
 
 impl Default for AgentConfig {
@@ -379,6 +382,7 @@ impl Default for AgentConfig {
             streaming_enabled: true,
             streaming_flush_interval_ms: 1000,
             streaming_tool_updates: true,
+            max_spend_usd: 1.0,
         }
     }
 }
@@ -397,6 +401,9 @@ fn default_max_task_duration_secs() -> u64 {
 }
 fn default_streaming_flush_interval_ms() -> u64 {
     1000
+}
+fn default_max_spend_usd() -> f64 {
+    1.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
