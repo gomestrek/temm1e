@@ -1,12 +1,19 @@
 # ---- Builder stage ----
-FROM rust:1.82 AS builder
+FROM rust:1.88 AS builder
+
+ARG GIT_HASH=unknown
+ARG BUILD_DATE=unknown
 
 WORKDIR /app
 
 # Copy manifests first for dependency caching
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml Cargo.lock build.rs ./
 COPY crates/ crates/
 COPY src/ src/
+
+# Set env vars so build.rs fallback works even without git
+ENV GIT_HASH=${GIT_HASH}
+ENV BUILD_DATE=${BUILD_DATE}
 
 RUN cargo build --release
 
@@ -24,8 +31,6 @@ ENV CHROME_PATH=/usr/bin/chromium
 WORKDIR /app
 
 COPY --from=builder /app/target/release/skyclaw ./skyclaw
-
-ENV TELEGRAM_BOT_TOKEN=""
 
 EXPOSE 8080
 
