@@ -1,10 +1,12 @@
-//! LLM-based message classifier — classifies user messages as "chat" or "order"
-//! using a single fast LLM call. Replaces brittle rule-based keyword matching.
+//! LLM-based message classifier — classifies user messages as "chat", "order",
+//! or "stop" using a single fast LLM call.
 //!
 //! - **Chat**: conversational messages (greetings, questions, opinions, thanks).
 //!   The LLM provides a complete response in `chat_text`. One call total.
 //! - **Order**: actionable requests (create, search, fix, open, build, etc.).
 //!   The LLM provides a brief acknowledgment in `chat_text` and classifies difficulty.
+//! - **Stop**: user wants the agent to stop, cancel, or abandon the current task.
+//!   Short acknowledgement in `chat_text`. Caller should interrupt any active task.
 
 use serde::{Deserialize, Serialize};
 use skyclaw_core::types::error::SkyclawError;
@@ -21,12 +23,13 @@ pub struct MessageClassification {
     pub difficulty: TaskDifficulty,
 }
 
-/// Whether a message is conversational or an actionable order.
+/// Whether a message is conversational, an actionable order, or a stop request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageCategory {
     Chat,
     Order,
+    Stop,
 }
 
 /// Difficulty level for order messages, maps to execution profiles.
@@ -54,6 +57,7 @@ const CLASSIFY_SYSTEM_PROMPT: &str = r#"You are SkyClaw, an AI assistant. Classi
 Categories:
 - "chat": Conversational — greetings, knowledge questions, opinions, thanks, casual talk. You provide a complete helpful response.
 - "order": The user wants you to DO something — open, create, search, fix, write, build, run, find, download, deploy, browse, etc.
+- "stop": The user wants you to STOP, cancel, or abandon the current task. Any variation of "stop", "cancel", "don't continue", "never mind", "forget it", "that's enough", "no need", or equivalent in any language. Even if embedded in a longer sentence like "ok stop that" or "thôi không cần nữa".
 
 Difficulty (for orders only):
 - "simple": Single step, straightforward task
@@ -66,7 +70,8 @@ Response format:
 Rules:
 - For "chat": chat_text = your complete, helpful answer to the user.
 - For "order": chat_text = brief natural acknowledgment (1-2 sentences, e.g. "Let me search for that!" or "On it, opening YouTube now.").
-- difficulty is only meaningful for "order". For "chat", always use "simple".
+- For "stop": chat_text = very short acknowledgment in the user's language (e.g. "OK, stopped." / "Đã dừng." / "了解、中止しました。"). Nothing else.
+- difficulty is only meaningful for "order". For "chat" and "stop", always use "simple".
 - Respond in the SAME LANGUAGE as the user's message."#;
 
 /// Classify a user message using a fast LLM call.
@@ -188,6 +193,23 @@ mod tests {
     }
 
     #[test]
+    fn parse_stop_classification() {
+        let json = r#"{"category":"stop","chat_text":"Đã dừng.","difficulty":"simple"}"#;
+        let result = parse_classification(json).unwrap();
+        assert_eq!(result.category, MessageCategory::Stop);
+        assert_eq!(result.chat_text, "Đã dừng.");
+        assert_eq!(result.difficulty, TaskDifficulty::Simple);
+    }
+
+    #[test]
+    fn parse_stop_english() {
+        let json = r#"{"category":"stop","chat_text":"OK, stopped.","difficulty":"simple"}"#;
+        let result = parse_classification(json).unwrap();
+        assert_eq!(result.category, MessageCategory::Stop);
+        assert_eq!(result.chat_text, "OK, stopped.");
+    }
+
+    #[test]
     fn parse_with_markdown_code_block() {
         let text =
             "```json\n{\"category\":\"chat\",\"chat_text\":\"Hi!\",\"difficulty\":\"simple\"}\n```";
@@ -248,6 +270,12 @@ mod tests {
         let order = MessageCategory::Order;
         let json = serde_json::to_string(&order).unwrap();
         assert_eq!(json, "\"order\"");
+
+        let stop = MessageCategory::Stop;
+        let json = serde_json::to_string(&stop).unwrap();
+        assert_eq!(json, "\"stop\"");
+        let restored: MessageCategory = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, MessageCategory::Stop);
     }
 
     #[test]

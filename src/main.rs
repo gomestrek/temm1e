@@ -948,37 +948,57 @@ fn format_user_error(e: &skyclaw_core::types::error::SkyclawError) -> String {
 
 /// List configured providers (names only, never keys).
 fn list_configured_providers() -> String {
+    let mut lines = vec![];
+    let mut has_providers = false;
+
+    // Check Codex OAuth first
+    #[cfg(feature = "codex-oauth")]
+    if skyclaw_codex_oauth::TokenStore::exists() {
+        has_providers = true;
+        lines.push("Configured providers:".to_string());
+        lines.push("  openai-codex — model: gpt-5.4, OAuth (active)".to_string());
+    }
+
     match load_credentials_file() {
         Some(creds) => {
-            if creds.providers.is_empty() {
-                return "No providers configured. Use /addkey to add one.".to_string();
+            if !creds.providers.is_empty() {
+                if !has_providers {
+                    lines.push("Configured providers:".to_string());
+                }
+                has_providers = true;
+                for p in &creds.providers {
+                    let key_count = p.keys.iter().filter(|k| !is_placeholder_key(k)).count();
+                    let active = if p.name == creds.active && !cfg!(feature = "codex-oauth") {
+                        " (active)"
+                    } else if p.name == creds.active {
+                        ""
+                    } else {
+                        ""
+                    };
+                    let proxy = if let Some(ref url) = p.base_url {
+                        format!(" via {}", url)
+                    } else {
+                        String::new()
+                    };
+                    lines.push(format!(
+                        "  {} — model: {}, {} key(s){}{}",
+                        p.name, p.model, key_count, proxy, active
+                    ));
+                }
             }
-            let mut lines = vec!["Configured providers:".to_string()];
-            for p in &creds.providers {
-                let key_count = p.keys.iter().filter(|k| !is_placeholder_key(k)).count();
-                let active = if p.name == creds.active {
-                    " (active)"
-                } else {
-                    ""
-                };
-                let proxy = if let Some(ref url) = p.base_url {
-                    format!(" via {}", url)
-                } else {
-                    String::new()
-                };
-                lines.push(format!(
-                    "  {} — model: {}, {} key(s){}{}",
-                    p.name, p.model, key_count, proxy, active
-                ));
-            }
-            lines.push(String::new());
-            lines.push(
-                "Use /addkey to add a new key, /removekey <provider> to remove one.".to_string(),
-            );
-            lines.join("\n")
         }
-        None => "No providers configured. Use /addkey to add one.".to_string(),
+        None => {}
     }
+
+    if !has_providers {
+        return "No providers configured. Use /addkey to add one.".to_string();
+    }
+
+    lines.push(String::new());
+    lines.push(
+        "Use /addkey to add a new key, /removekey <provider> to remove one.".to_string(),
+    );
+    lines.join("\n")
 }
 
 /// Handle the /model command.
@@ -986,6 +1006,44 @@ fn list_configured_providers() -> String {
 /// - `/model` (no args) → show current model + all available models per provider
 /// - `/model <exact-name>` → switch to that model on the active provider
 fn handle_model_command(args: &str) -> String {
+    // Check Codex OAuth first — if active and no args, show Codex model info
+    #[cfg(feature = "codex-oauth")]
+    {
+        let has_creds = load_credentials_file()
+            .map(|c| !c.providers.is_empty())
+            .unwrap_or(false);
+        if !has_creds && skyclaw_codex_oauth::TokenStore::exists() {
+            if args.is_empty() {
+                let codex_models = [
+                    "gpt-5.4", "gpt-5.3-codex", "gpt-5.3-codex-spark",
+                    "gpt-5.2", "gpt-5.2-codex", "gpt-5.1-codex", "gpt-5.1-codex-mini",
+                    "gpt-5", "gpt-5-codex", "gpt-5-codex-mini", "gpt-5-mini",
+                    "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "o4-mini",
+                ];
+                let mut lines = vec![
+                    "Current: gpt-5.4 on openai-codex provider (OAuth)".to_string(),
+                    String::new(),
+                    "Available Codex models:".to_string(),
+                ];
+                for m in &codex_models {
+                    let current = if *m == "gpt-5.4" { " ← current" } else { "" };
+                    lines.push(format!("    {}{}", m, current));
+                }
+                lines.push(String::new());
+                lines.push("Switch model: /model <exact-model-name>".to_string());
+                lines.push("Example: /model gpt-5.2-codex".to_string());
+                return lines.join("\n");
+            } else {
+                let target = args.trim();
+                // Return "Model switched:" so the caller rebuilds the agent
+                return format!(
+                    "Model switched: codex-oauth → {}\nCodex OAuth",
+                    target
+                );
+            }
+        }
+    }
+
     let creds = match load_credentials_file() {
         Some(c) => c,
         None => return "No providers configured. Use /addkey to add one.".to_string(),
@@ -1830,13 +1888,9 @@ async fn main() -> Result<()> {
                 // Check if Codex OAuth tokens exist — use those instead of API key
                 #[cfg(feature = "codex-oauth")]
                 {
-                    let pname = config.provider.name.clone().unwrap_or_default();
-                    if pname == "openai-codex" && skyclaw_codex_oauth::TokenStore::exists() {
-                        let model = config
-                            .provider
-                            .model
-                            .clone()
-                            .unwrap_or_else(|| "gpt-4o-mini".to_string());
+                    if skyclaw_codex_oauth::TokenStore::exists() {
+                        // Always use Codex-compatible model — config model is for API key provider
+                        let model = "gpt-5.4".to_string();
                         match skyclaw_codex_oauth::TokenStore::load() {
                             Ok(store) => {
                                 let token_store = std::sync::Arc::new(store);
@@ -1861,7 +1915,7 @@ async fn main() -> Result<()> {
                                     .with_v2_optimizations(config.agent.v2_optimizations),
                                 );
                                 *agent_state.write().await = Some(agent);
-                                tracing::info!(provider = %pname, model = %model, "Agent initialized via Codex OAuth");
+                                tracing::info!(provider = "openai-codex", model = %model, "Agent initialized via Codex OAuth");
                             }
                             Err(e) => {
                                 tracing::warn!(error = %e, "Codex OAuth tokens exist but failed to load — starting in onboarding mode");
@@ -2185,7 +2239,59 @@ async fn main() -> Result<()> {
                                         // If model was switched, reload agent immediately
                                         // (don't wait for file watcher)
                                         let final_text = if is_switch {
-                                            if let Some(creds) = load_credentials_file() {
+                                            // Check if this is a Codex OAuth model switch
+                                            #[cfg(feature = "codex-oauth")]
+                                            let codex_switch = result.contains("Codex OAuth");
+                                            #[cfg(not(feature = "codex-oauth"))]
+                                            let codex_switch = false;
+
+                                            if codex_switch {
+                                                #[cfg(feature = "codex-oauth")]
+                                                {
+                                                    // Extract target model from "Model switched: codex-oauth → <model>"
+                                                    let new_model = result
+                                                        .lines()
+                                                        .next()
+                                                        .and_then(|l| l.split("→ ").nth(1))
+                                                        .unwrap_or("gpt-5.4")
+                                                        .trim()
+                                                        .to_string();
+                                                    match skyclaw_codex_oauth::TokenStore::load() {
+                                                        Ok(store) => {
+                                                            let token_store = std::sync::Arc::new(store);
+                                                            let provider: Arc<dyn skyclaw_core::Provider> =
+                                                                Arc::new(skyclaw_codex_oauth::CodexResponsesProvider::new(
+                                                                    new_model.clone(),
+                                                                    token_store,
+                                                                ));
+                                                            let new_agent = Arc::new(skyclaw_agent::AgentRuntime::with_limits(
+                                                                provider,
+                                                                memory.clone(),
+                                                                tools_template.clone(),
+                                                                new_model.clone(),
+                                                                Some(build_system_prompt()),
+                                                                max_turns,
+                                                                max_ctx,
+                                                                max_rounds,
+                                                                max_task_duration,
+                                                                max_spend,
+                                                            ).with_v2_optimizations(v2_opt));
+                                                            *agent_state.write().await = Some(new_agent);
+                                                            tracing::info!(
+                                                                provider = "openai-codex",
+                                                                model = %new_model,
+                                                                "Agent reloaded via /model command (Codex OAuth)"
+                                                            );
+                                                            format!("Model switched → {}\nActive now.", new_model)
+                                                        }
+                                                        Err(e) => {
+                                                            format!("Model switch failed: {}", e)
+                                                        }
+                                                    }
+                                                }
+                                                #[cfg(not(feature = "codex-oauth"))]
+                                                { result }
+                                            } else if let Some(creds) = load_credentials_file() {
                                                 if let Some(prov) = creds.providers.iter().find(|p| p.name == creds.active) {
                                                     let valid_keys: Vec<String> = prov.keys.iter()
                                                         .filter(|k| !is_placeholder_key(k))
@@ -3520,13 +3626,9 @@ Just type a message to chat with the AI agent.",
                 // Check if Codex OAuth tokens exist — use those instead of API key
                 #[cfg(feature = "codex-oauth")]
                 {
-                    let pname = config.provider.name.clone().unwrap_or_default();
-                    if pname == "openai-codex" && skyclaw_codex_oauth::TokenStore::exists() {
-                        let model = config
-                            .provider
-                            .model
-                            .clone()
-                            .unwrap_or_else(|| "gpt-4o-mini".to_string());
+                    if skyclaw_codex_oauth::TokenStore::exists() {
+                        // Always use Codex-compatible model — config model is for API key provider
+                        let model = "gpt-5.4".to_string();
                         match skyclaw_codex_oauth::TokenStore::load() {
                             Ok(store) => {
                                 let token_store = std::sync::Arc::new(store);
@@ -3552,8 +3654,8 @@ Just type a message to chat with the AI agent.",
                                     .with_v2_optimizations(v2_opt),
                                 );
                                 println!(
-                                    "Connected to {} via Codex OAuth (model: {})",
-                                    pname, model
+                                    "Connected to openai-codex via Codex OAuth (model: {})",
+                                    model
                                 );
                             }
                             Err(e) => {
@@ -4366,10 +4468,8 @@ Just type a message to chat with the AI agent.",
                         println!("\n  Authenticated successfully!");
                         println!("  Email:   {}", email);
                         println!("  Expires: {}", expires);
-                        println!("\n  To use Codex, set your config to:");
-                        println!("    [provider]");
-                        println!("    name = \"openai-codex\"");
-                        println!("    model = \"gpt-5.4\"");
+                        println!("  Model:   gpt-5.4 (default)");
+                        println!("\n  Run `skyclaw start` to go online.");
                     }
                     Err(e) => {
                         eprintln!("Authentication failed: {}", e);

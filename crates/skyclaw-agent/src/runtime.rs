@@ -429,6 +429,35 @@ impl AgentRuntime {
                                 },
                             ));
                         }
+                        crate::llm_classifier::MessageCategory::Stop => {
+                            // ── Stop: acknowledge and return immediately ──
+                            // The caller (main.rs dispatcher) handles the
+                            // actual interrupt of any active task. Here we
+                            // just return the LLM's short acknowledgement.
+                            info!("V2: LLM classified as Stop — returning ack");
+                            session.history.push(ChatMessage {
+                                role: Role::Assistant,
+                                content: MessageContent::Text(classification.chat_text.clone()),
+                            });
+
+                            return Ok((
+                                OutboundMessage {
+                                    chat_id: msg.chat_id.clone(),
+                                    text: classification.chat_text,
+                                    reply_to: Some(msg.id.clone()),
+                                    parse_mode: Some(ParseMode::Plain),
+                                },
+                                TurnUsage {
+                                    api_calls: turn_api_calls,
+                                    input_tokens: turn_input_tokens,
+                                    output_tokens: turn_output_tokens,
+                                    tools_used: 0,
+                                    total_cost_usd: turn_cost_usd,
+                                    provider: self.provider.name().to_string(),
+                                    model: self.model.clone(),
+                                },
+                            ));
+                        }
                         crate::llm_classifier::MessageCategory::Order => {
                             // ── Order: send ack, then continue pipeline ──
                             if let Some(ref tx) = reply_tx {
@@ -1150,10 +1179,12 @@ impl AgentRuntime {
 
         // Fallback: exited loop due to interruption or max rounds
         let text = if interrupted {
-            "I was interrupted to handle a new message. I'll pick up where I left off if needed."
-                .to_string()
+            // Task was cancelled — no resume capability exists.
+            // Keep message short and factual. No false promises.
+            "Task stopped.".to_string()
         } else {
-            "I reached the maximum number of tool execution steps. Here is what I have so far. Please let me know if you need me to continue.".to_string()
+            "I reached the maximum number of tool execution steps. Here is what I have so far."
+                .to_string()
         };
 
         Ok((

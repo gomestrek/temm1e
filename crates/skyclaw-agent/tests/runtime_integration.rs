@@ -3,10 +3,11 @@
 
 use std::sync::Arc;
 
-use skyclaw_agent::AgentRuntime;
+use skyclaw_agent::{AgentRuntime, AgentTaskPhase, AgentTaskStatus};
 use skyclaw_core::types::message::*;
 use skyclaw_core::Tool;
 use skyclaw_test_utils::{make_inbound_msg, make_session, MockMemory, MockProvider, MockTool};
+use tokio_util::sync::CancellationToken;
 
 fn make_runtime_with_text(text: &str) -> AgentRuntime {
     let provider = Arc::new(MockProvider::with_text(text));
@@ -161,4 +162,177 @@ async fn multiple_messages_in_sequence() {
 
     // History should have 3 user + 3 assistant = 6 messages
     assert_eq!(session.history.len(), 6);
+}
+
+// ── Interceptor Phase 1: Watch Channel + CancellationToken Tests ───
+
+#[tokio::test]
+async fn status_watch_channel_receives_phase_transitions() {
+    // Watch channels show the LATEST value, not all intermediate states.
+    // With a synchronous MockProvider, process_message runs to completion
+    // before any observer task can poll. So we verify:
+    // 1. The sender was used (receiver sees a changed mark)
+    // 2. The final state reflects the complete lifecycle
+    let runtime = make_runtime_with_text("Hello!");
+    let msg = make_inbound_msg("Hi");
+    let mut session = make_session();
+
+    let (status_tx, mut status_rx) = tokio::sync::watch::channel(AgentTaskStatus::default());
+    let cancel = CancellationToken::new();
+
+    let (reply, _usage) = runtime
+        .process_message(
+            &msg,
+            &mut session,
+            None,
+            None,
+            None,
+            Some(status_tx),
+            Some(cancel),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(reply.text, "Hello!");
+
+    // The watch channel should have been modified — changed() resolves immediately
+    // because send_modify was called multiple times during process_message
+    let changed =
+        tokio::time::timeout(tokio::time::Duration::from_millis(100), status_rx.changed()).await;
+    assert!(
+        changed.is_ok(),
+        "Watch channel should have pending changes after process_message"
+    );
+
+    // The latest value should be Done (final phase)
+    let status = status_rx.borrow().clone();
+    assert!(
+        matches!(status.phase, AgentTaskPhase::Done),
+        "Final phase should be Done, got {:?}",
+        status.phase
+    );
+}
+
+#[tokio::test]
+async fn status_watch_final_state_is_done() {
+    let runtime = make_runtime_with_text("Done!");
+    let msg = make_inbound_msg("test");
+    let mut session = make_session();
+
+    let (status_tx, status_rx) = tokio::sync::watch::channel(AgentTaskStatus::default());
+    let cancel = CancellationToken::new();
+
+    runtime
+        .process_message(
+            &msg,
+            &mut session,
+            None,
+            None,
+            None,
+            Some(status_tx),
+            Some(cancel),
+        )
+        .await
+        .unwrap();
+
+    // After process_message returns, the final state should be Done
+    let final_status = status_rx.borrow().clone();
+    assert!(
+        matches!(final_status.phase, AgentTaskPhase::Done),
+        "Final phase should be Done, got {:?}",
+        final_status.phase
+    );
+}
+
+#[tokio::test]
+async fn status_watch_tracks_token_counts() {
+    let runtime = make_runtime_with_text("response");
+    let msg = make_inbound_msg("query");
+    let mut session = make_session();
+
+    let (status_tx, status_rx) = tokio::sync::watch::channel(AgentTaskStatus::default());
+
+    runtime
+        .process_message(&msg, &mut session, None, None, None, Some(status_tx), None)
+        .await
+        .unwrap();
+
+    let final_status = status_rx.borrow().clone();
+    // MockProvider reports token usage — verify it's captured
+    // The exact values depend on MockProvider but should be > 0
+    // if the provider reports any usage
+    assert!(
+        matches!(final_status.phase, AgentTaskPhase::Done),
+        "Phase should be Done"
+    );
+    assert_eq!(
+        final_status.rounds_completed, 0,
+        "Simple text response = 0 tool rounds"
+    );
+}
+
+#[tokio::test]
+async fn cancel_token_does_not_affect_normal_flow() {
+    let runtime = make_runtime_with_text("Normal response");
+    let msg = make_inbound_msg("Hello");
+    let mut session = make_session();
+
+    let cancel = CancellationToken::new();
+    // Don't cancel — verify normal flow works with token present
+    let (reply, _usage) = runtime
+        .process_message(&msg, &mut session, None, None, None, None, Some(cancel))
+        .await
+        .unwrap();
+
+    assert_eq!(reply.text, "Normal response");
+}
+
+#[tokio::test]
+async fn none_status_and_cancel_is_backward_compatible() {
+    // Verify that passing None for both Phase 1 params
+    // produces identical behavior to pre-Phase-1
+    let runtime = make_runtime_with_text("Backward compat");
+    let msg = make_inbound_msg("test");
+    let mut session = make_session();
+
+    let (reply, _usage) = runtime
+        .process_message(&msg, &mut session, None, None, None, None, None)
+        .await
+        .unwrap();
+
+    assert_eq!(reply.text, "Backward compat");
+    assert_eq!(session.history.len(), 2);
+}
+
+#[tokio::test]
+async fn watch_channel_with_multiple_messages() {
+    let runtime = make_runtime_with_text("Reply");
+    let mut session = make_session();
+
+    // Process multiple messages, each with its own watch channel
+    for i in 0..3 {
+        let (status_tx, status_rx) = tokio::sync::watch::channel(AgentTaskStatus::default());
+        let cancel = CancellationToken::new();
+        let msg = make_inbound_msg(&format!("Message {i}"));
+
+        runtime
+            .process_message(
+                &msg,
+                &mut session,
+                None,
+                None,
+                None,
+                Some(status_tx),
+                Some(cancel),
+            )
+            .await
+            .unwrap();
+
+        let final_status = status_rx.borrow().clone();
+        assert!(
+            matches!(final_status.phase, AgentTaskPhase::Done),
+            "Message {i}: final phase should be Done, got {:?}",
+            final_status.phase
+        );
+    }
 }

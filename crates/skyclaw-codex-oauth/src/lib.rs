@@ -207,9 +207,11 @@ async fn exchange_code(
         .post("https://chatgpt.com/backend-api/codex/responses")
         .header("Authorization", format!("Bearer {}", tokens.access_token))
         .json(&serde_json::json!({
-            "model": "gpt-4o-mini",
-            "input": "Say OK",
-            "max_output_tokens": 5,
+            "model": "gpt-5.4",
+            "instructions": "Reply with OK",
+            "input": [{"role": "user", "content": "Say OK"}],
+            "store": false,
+            "stream": true,
         }))
         .send()
         .await;

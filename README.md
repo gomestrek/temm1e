@@ -28,7 +28,7 @@ Deploys once, stays up forever. Learns from every task, remembers across session
 
 SkyClaw is an autonomous AI agent that lives on your server and talks to you through messaging apps. It runs shell commands, browses the web, reads/writes files, fetches URLs, understands images, delegates sub-tasks, self-heals, and learns from its own mistakes — all controlled through natural conversation.
 
-No web dashboards. No config files to edit. Deploy, paste your API key in Telegram, and go.
+No web dashboards. No config files to edit. Log in with your ChatGPT account or paste an API key in Telegram — and go.
 
 ## AGENTIC CORE v2
 
@@ -134,17 +134,70 @@ SkyClaw is built for hyper-performance. Rust's zero-cost abstractions, async run
 
 > **Methodology:** SkyClaw numbers measured on Apple Silicon (arm64), macOS Darwin 23.6.0, release build with LTO. RSS sampled every 2s via `ps`. OpenClaw/ZeroClaw numbers from published benchmarks ([source 1](https://juliangoldie.com/zeroclaw-vs-openclaw/), [source 2](https://zeroclaws.io/blog/zeroclaw-vs-openclaw-vs-picoclaw-2026/), [source 3](https://advenboost.com/en/openclaw-hardware-requirements/)). Full raw data: [`docs/benchmarks/`](docs/benchmarks/).
 
-## 3-Step Setup
+## Setup
 
-### Step 1: Get a Telegram Bot Token
+There are two ways to connect SkyClaw to an AI provider. Pick whichever works for you.
+
+### Option A: ChatGPT Login (easiest — no API key needed)
+
+If you have a ChatGPT Plus or Pro subscription, you can use it directly. No API key, no billing page, no config files.
+
+**Step 1: Create a Telegram bot**
 
 1. Open Telegram and search for [@BotFather](https://t.me/BotFather)
-2. Send `/newbot`
-3. Choose a name and a username (must end in `bot`)
-4. BotFather replies with your bot token
-5. Copy it
+2. Send `/newbot`, pick a name and username (must end in `bot`)
+3. Copy the bot token BotFather gives you
 
-### Step 2: Deploy
+**Step 2: Build and authenticate**
+
+```bash
+git clone https://github.com/nagisanzenin/skyclaw.git
+cd skyclaw
+cargo build --release
+./target/release/skyclaw auth login
+```
+
+A browser window opens — log into your ChatGPT account. That's it.
+
+```
+  Authenticated successfully!
+  Email:   you@gmail.com
+  Expires: 239h 59m
+  Model:   gpt-5.4 (default)
+
+  Run `skyclaw start` to go online.
+```
+
+**Step 3: Start and chat**
+
+```bash
+export TELEGRAM_BOT_TOKEN="your-token-here"
+./target/release/skyclaw start
+```
+
+Open your bot in Telegram. Send a message. You're live.
+
+**Switching models:**
+
+Send `/model` in Telegram to see available models, or `/model gpt-5.3-codex` to switch.
+
+**Managing your session:**
+
+```bash
+skyclaw auth status     # check token validity and expiry
+skyclaw auth logout     # remove tokens
+skyclaw auth login      # re-authenticate when token expires (~10 days)
+```
+
+> On a headless server with no browser, use `skyclaw auth login --headless` — it prints a URL to open on any device, then you paste the redirect URL back.
+
+### Option B: API Key (any provider)
+
+If you have an API key from any supported provider, paste it directly in Telegram.
+
+**Step 1: Create a Telegram bot** (same as above)
+
+**Step 2: Deploy**
 
 ```bash
 git clone https://github.com/nagisanzenin/skyclaw.git
@@ -154,7 +207,7 @@ export TELEGRAM_BOT_TOKEN="your-token-here"
 ./target/release/skyclaw start
 ```
 
-### Step 3: Activate
+**Step 3: Activate**
 
 1. Open your bot in Telegram
 2. Send any message — SkyClaw sends you a secure setup link
@@ -166,7 +219,7 @@ Supports: Anthropic, OpenAI, Gemini, Grok, OpenRouter, Z.ai, MiniMax
 
 ### Running as a Daemon
 
-After completing the initial setup above (Steps 1-3), you can run SkyClaw as a background daemon:
+After completing setup (Option A or B), you can run SkyClaw in the background:
 
 ```bash
 skyclaw start -d                     # daemonize, log to ~/.skyclaw/skyclaw.log
@@ -174,7 +227,7 @@ skyclaw start -d --log /var/log/sk.log  # custom log path
 skyclaw stop                         # graceful shutdown
 ```
 
-> **Important:** `--daemon` requires a completed setup (API key saved via Telegram). First-time users must run `skyclaw start` in the foreground to complete onboarding. If no credentials are found, daemon mode will exit with an error and instructions.
+> **Important:** `--daemon` requires a completed setup. First-time users must run `skyclaw start` in the foreground to complete onboarding or run `skyclaw auth login` first.
 
 ## Supported Providers
 
@@ -192,35 +245,37 @@ Paste any of these API keys in Telegram — SkyClaw detects the provider automat
 
 ### Codex OAuth
 
-Use your ChatGPT Plus/Pro subscription instead of an API key. SkyClaw authenticates via OpenAI's OAuth PKCE flow and routes through the Codex backend API.
+Use your ChatGPT Plus/Pro subscription instead of an API key. No billing page, no usage limits — just your existing ChatGPT account.
 
 ```bash
-# One-time login (opens browser)
-skyclaw auth login
-
-# Or headless (prints URL, paste redirect back)
-skyclaw auth login --headless
-
-# Check status
-skyclaw auth status
-
-# Logout
-skyclaw auth logout
+skyclaw auth login          # opens browser, log into ChatGPT
+skyclaw start               # auto-detects OAuth tokens, goes online
 ```
 
-Then set your config:
+No config changes needed. SkyClaw detects your OAuth tokens at startup and connects automatically with `gpt-5.4`.
 
-```toml
-[provider]
-name = "openai-codex"
-model = "gpt-5.4"  # recommended — reliable tool calling for all task types
+Switch models in Telegram with `/model`:
+
+| Model | Best for |
+|-------|----------|
+| `gpt-5.4` (default) | All tasks — chat, tools, browsing, file ops |
+| `gpt-5.3-codex` | Coding-focused tasks |
+| `gpt-5.2` | General purpose, reliable tool calling |
+| `gpt-5.2-codex` | Coding with older model |
+| `gpt-4.1` | Lighter tasks, faster responses |
+| `o4-mini` | Reasoning tasks |
+
+> **Note:** The `*-codex` models are coding-specialized and may skip tools for general-purpose tasks (web browsing, file creation). Use `gpt-5.4` or `gpt-5.2` for full agent functionality.
+
+Session management:
+
+```bash
+skyclaw auth status         # check token validity and expiry
+skyclaw auth logout         # remove tokens
+skyclaw auth login --headless  # for servers without a browser
 ```
 
-Supported Codex models: `gpt-5.4` (recommended), `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.2-codex`, `gpt-5.2`, `gpt-5.1-codex`, `gpt-5`, `gpt-5-codex-mini`.
-
-> **Note:** The `*-codex` models are coding-specialized and may inconsistently call tools for general-purpose tasks (web browsing, file creation, etc.). Use `gpt-5.4` or `gpt-5.2` for full agent functionality.
-
-Uses the OpenAI Responses API (not Chat Completions). The `codex-oauth` feature flag is enabled by default. Tokens are stored in `~/.skyclaw/oauth.json` and auto-refresh before expiry.
+Tokens last ~10 days. Re-run `auth login` when they expire. Stored at `~/.skyclaw/oauth.json`.
 
 ## Channels
 
