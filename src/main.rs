@@ -481,6 +481,28 @@ struct CredentialsProvider {
     base_url: Option<String>,
 }
 
+/// Check if a user is the admin by reading `~/.skyclaw/allowlist.toml`.
+fn is_admin_user(user_id: &str) -> bool {
+    let path = dirs::home_dir().map(|h| h.join(".skyclaw").join("allowlist.toml"));
+    let path = match path {
+        Some(p) => p,
+        None => return false,
+    };
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    // Parse just the admin field — keep it minimal to avoid coupling with channel types
+    #[derive(serde::Deserialize)]
+    struct AllowlistCheck {
+        admin: String,
+    }
+    match toml::from_str::<AllowlistCheck>(&content) {
+        Ok(al) => al.admin == user_id,
+        Err(_) => false,
+    }
+}
+
 fn credentials_path() -> std::path::PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
@@ -2571,7 +2593,9 @@ Available commands:\n\n\
 /mcp add <name> <command-or-url> — Connect a new MCP server\n\
 /mcp remove <name> — Disconnect an MCP server\n\
 /mcp restart <name> — Restart an MCP server\n\
-/restart — Restart SkyClaw (server mode only)\n\n\
+/reload — Hot-reload config and agent (admin)\n\
+/reset — Factory reset all local state (admin)\n\
+/restart — Restart SkyClaw process (admin)\n\n\
 Just type a message to chat with the AI agent.",
                                             env!("CARGO_PKG_VERSION"),
                                             env!("GIT_HASH"),
@@ -2756,8 +2780,176 @@ Just type a message to chat with the AI agent.",
                                         return;
                                     }
 
-                                    // /restart — restart the SkyClaw process (server mode)
+                                    // /reload — hot-reload config and rebuild agent (admin only)
+                                    if cmd_lower == "/reload" {
+                                        if !is_admin_user(&msg.user_id) {
+                                            let reply = skyclaw_core::types::message::OutboundMessage {
+                                                chat_id: msg.chat_id.clone(),
+                                                text: "Only the admin can use /reload.".to_string(),
+                                                reply_to: Some(msg.id.clone()),
+                                                parse_mode: None,
+                                            };
+                                            send_with_retry(&*sender, reply).await;
+                                            is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                            return;
+                                        }
+
+                                        tracing::info!(chat_id = %msg.chat_id, "Reload requested via /reload command");
+
+                                        let reload_result: String = if let Some(creds) = load_credentials_file() {
+                                            if let Some(prov) = creds.providers.iter().find(|p| p.name == creds.active).or_else(|| creds.providers.first()) {
+                                                let valid_keys: Vec<String> = prov.keys.iter()
+                                                    .filter(|k| !is_placeholder_key(k))
+                                                    .cloned()
+                                                    .collect();
+                                                if valid_keys.is_empty() {
+                                                    "Reload failed: no valid API keys found.".to_string()
+                                                } else {
+                                                    let effective_base_url = prov.base_url.clone().or_else(|| base_url.clone());
+                                                    let reload_config = skyclaw_core::types::config::ProviderConfig {
+                                                        name: Some(prov.name.clone()),
+                                                        api_key: valid_keys.first().cloned(),
+                                                        keys: valid_keys,
+                                                        model: Some(prov.model.clone()),
+                                                        base_url: effective_base_url,
+                                                        extra_headers: std::collections::HashMap::new(),
+                                                    };
+                                                    match validate_provider_key(&reload_config).await {
+                                                        Ok(validated_provider) => {
+                                                            let new_agent = Arc::new(skyclaw_agent::AgentRuntime::with_limits(
+                                                                validated_provider,
+                                                                memory.clone(),
+                                                                tools_template.clone(),
+                                                                prov.model.clone(),
+                                                                Some(build_system_prompt()),
+                                                                max_turns,
+                                                                max_ctx,
+                                                                max_rounds,
+                                                                max_task_duration,
+                                                                max_spend,
+                                                            ).with_v2_optimizations(v2_opt));
+                                                            *agent_state.write().await = Some(new_agent);
+                                                            tracing::info!(
+                                                                provider = %prov.name,
+                                                                model = %prov.model,
+                                                                "Agent reloaded via /reload command"
+                                                            );
+                                                            format!(
+                                                                "Reloaded successfully.\n  Provider: {}\n  Model: {}",
+                                                                prov.name, prov.model
+                                                            )
+                                                        }
+                                                        Err(err) => {
+                                                            tracing::warn!(error = %err, "Reload failed — agent unchanged");
+                                                            format!("Reload failed: {}\nAgent unchanged — still running on previous config.", err)
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                "Reload failed: no providers configured.".to_string()
+                                            }
+                                        } else {
+                                            "Reload failed: no credentials file found.".to_string()
+                                        };
+
+                                        let reply = skyclaw_core::types::message::OutboundMessage {
+                                            chat_id: msg.chat_id.clone(),
+                                            text: reload_result,
+                                            reply_to: Some(msg.id.clone()),
+                                            parse_mode: None,
+                                        };
+                                        send_with_retry(&*sender, reply).await;
+                                        is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                        return;
+                                    }
+
+                                    // /reset — factory reset from messaging (admin only)
+                                    if cmd_lower == "/reset" {
+                                        if !is_admin_user(&msg.user_id) {
+                                            let reply = skyclaw_core::types::message::OutboundMessage {
+                                                chat_id: msg.chat_id.clone(),
+                                                text: "Only the admin can use /reset.".to_string(),
+                                                reply_to: Some(msg.id.clone()),
+                                                parse_mode: None,
+                                            };
+                                            send_with_retry(&*sender, reply).await;
+                                            is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                            return;
+                                        }
+
+                                        tracing::info!(chat_id = %msg.chat_id, "Factory reset requested via /reset command");
+
+                                        let data_dir = dirs::home_dir()
+                                            .unwrap_or_else(|| std::path::PathBuf::from("."))
+                                            .join(".skyclaw");
+
+                                        let reset_result = if !data_dir.exists() {
+                                            "Nothing to reset — no local state found.".to_string()
+                                        } else {
+                                            // Backup before wipe
+                                            let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
+                                            let backup_dir = dirs::home_dir()
+                                                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                                                .join(format!(".skyclaw.bak.{}", timestamp));
+
+                                            fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+                                                std::fs::create_dir_all(dst)?;
+                                                for entry in std::fs::read_dir(src)? {
+                                                    let entry = entry?;
+                                                    let src_path = entry.path();
+                                                    let dst_path = dst.join(entry.file_name());
+                                                    if src_path.is_dir() {
+                                                        copy_dir_recursive(&src_path, &dst_path)?;
+                                                    } else {
+                                                        std::fs::copy(&src_path, &dst_path)?;
+                                                    }
+                                                }
+                                                Ok(())
+                                            }
+
+                                            match copy_dir_recursive(&data_dir, &backup_dir) {
+                                                Ok(()) => {
+                                                    match std::fs::remove_dir_all(&data_dir) {
+                                                        Ok(()) => {
+                                                            let _ = std::fs::create_dir_all(&data_dir);
+                                                            *agent_state.write().await = None;
+                                                            format!(
+                                                                "Factory reset complete.\nBackup: {}\n\nUse /restart to reboot, or send /addkey to reconfigure.",
+                                                                backup_dir.display()
+                                                            )
+                                                        }
+                                                        Err(e) => format!("Reset failed: {}\nBackup at: {}", e, backup_dir.display()),
+                                                    }
+                                                }
+                                                Err(e) => format!("Reset aborted — backup failed: {}\nYour data is untouched.", e),
+                                            }
+                                        };
+
+                                        let reply = skyclaw_core::types::message::OutboundMessage {
+                                            chat_id: msg.chat_id.clone(),
+                                            text: reset_result,
+                                            reply_to: Some(msg.id.clone()),
+                                            parse_mode: None,
+                                        };
+                                        send_with_retry(&*sender, reply).await;
+                                        is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                        return;
+                                    }
+
+                                    // /restart — restart the SkyClaw process, server mode (admin only)
                                     if cmd_lower == "/restart" {
+                                        if !is_admin_user(&msg.user_id) {
+                                            let reply = skyclaw_core::types::message::OutboundMessage {
+                                                chat_id: msg.chat_id.clone(),
+                                                text: "Only the admin can use /restart.".to_string(),
+                                                reply_to: Some(msg.id.clone()),
+                                                parse_mode: None,
+                                            };
+                                            send_with_retry(&*sender, reply).await;
+                                            is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                            return;
+                                        }
+
                                         tracing::info!(
                                             chat_id = %msg.chat_id,
                                             "Restart requested via /restart command"
