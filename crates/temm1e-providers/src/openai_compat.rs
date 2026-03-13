@@ -3,14 +3,14 @@ use futures::stream::BoxStream;
 use futures::StreamExt;
 use reqwest::Client;
 use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use temm1e_core::types::error::Temm1eError;
 use temm1e_core::types::message::{
     ChatMessage, CompletionRequest, CompletionResponse, ContentPart, MessageContent, Role,
     StreamChunk, ToolDefinition, Usage,
 };
 use temm1e_core::Provider;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use tracing::{debug, error, info};
 
 /// OpenAI-compatible provider with key rotation.
@@ -98,8 +98,12 @@ impl OpenAICompatProvider {
             }));
         }
 
+        // Pre-scan: build tool_use_id → tool_name map so tool result messages
+        // can include the `name` field (required by Gemini, accepted by OpenAI).
+        let tool_name_map = build_tool_name_map(&request.messages);
+
         for msg in &request.messages {
-            let converted = convert_message_to_openai(msg)?;
+            let converted = convert_message_to_openai(msg, &tool_name_map)?;
             // Tool messages may be returned as a JSON array when there are
             // multiple ToolResult parts (DF-15 fix).
             if let serde_json::Value::Array(arr) = converted {
@@ -108,6 +112,18 @@ impl OpenAICompatProvider {
                 messages.push(converted);
             }
         }
+
+        // Sanitize tool message ordering: Gemini requires tool_result messages
+        // to immediately follow their corresponding tool_call assistant messages.
+        // Strip any orphaned tool messages that violate this constraint.
+        sanitize_tool_ordering(&mut messages);
+
+        // Gemini 3 models require a `thought_signature` on the first tool_call
+        // in each assistant message. Inject the documented bypass value for
+        // tool_calls that don't carry a real signature (old history, other
+        // providers). Non-Gemini providers ignore the extra_content field.
+        // See: https://ai.google.dev/gemini-api/docs/thought-signatures
+        inject_thought_signature_bypass(&mut messages);
 
         let mut body = serde_json::json!({
             "model": request.model,
@@ -238,7 +254,152 @@ struct OpenAIModel {
 // Conversion helpers
 // ---------------------------------------------------------------------------
 
-fn convert_message_to_openai(msg: &ChatMessage) -> Result<serde_json::Value, Temm1eError> {
+/// Build a map of tool_use_id → tool_name from all messages in the conversation.
+/// Used to populate the `name` field on tool result messages (required by Gemini).
+fn build_tool_name_map(messages: &[ChatMessage]) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for msg in messages {
+        if let MessageContent::Parts(parts) = &msg.content {
+            for part in parts {
+                if let ContentPart::ToolUse { id, name, .. } = part {
+                    map.insert(id.clone(), name.clone());
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Sanitize tool message ordering for providers like Gemini that require strict
+/// tool_call → tool_result adjacency.
+///
+/// Removes tool result messages (`"role": "tool"`) that don't immediately follow
+/// an assistant message with matching `tool_calls`, and strips `tool_calls` from
+/// assistant messages whose results were removed.
+fn sanitize_tool_ordering(messages: &mut Vec<serde_json::Value>) {
+    // Collect all tool_call IDs from assistant messages that ARE followed by
+    // their tool result messages (i.e., properly paired).
+    let mut valid_tool_call_ids: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
+    // First pass: identify which tool_call_ids have matching tool results
+    // anywhere in the message list (we just need them to exist).
+    let mut all_tool_call_ids: HashMap<String, usize> = HashMap::new(); // id → assistant msg index
+    let mut all_tool_result_ids: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
+    for (i, msg) in messages.iter().enumerate() {
+        if msg.get("role").and_then(|r| r.as_str()) == Some("assistant") {
+            if let Some(tool_calls) = msg.get("tool_calls").and_then(|tc| tc.as_array()) {
+                for tc in tool_calls {
+                    if let Some(id) = tc.get("id").and_then(|id| id.as_str()) {
+                        all_tool_call_ids.insert(id.to_string(), i);
+                    }
+                }
+            }
+        }
+        if msg.get("role").and_then(|r| r.as_str()) == Some("tool") {
+            if let Some(id) = msg.get("tool_call_id").and_then(|id| id.as_str()) {
+                all_tool_result_ids.insert(id.to_string());
+            }
+        }
+    }
+
+    // Valid = has both a call and a result
+    for id in &all_tool_result_ids {
+        if all_tool_call_ids.contains_key(id) {
+            valid_tool_call_ids.insert(id.clone());
+        }
+    }
+
+    // Second pass: remove tool result messages without matching tool_calls,
+    // and remove tool_calls entries from assistant messages without matching results.
+    messages.retain(|msg| {
+        let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("");
+        if role == "tool" {
+            // Keep only if this tool result has a matching tool_call
+            if let Some(id) = msg.get("tool_call_id").and_then(|id| id.as_str()) {
+                return valid_tool_call_ids.contains(id);
+            }
+            return false; // No tool_call_id → remove
+        }
+        true
+    });
+
+    // Clean up assistant messages: remove tool_calls entries that have no matching results
+    for msg in messages.iter_mut() {
+        if msg.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+            continue;
+        }
+        if let Some(tool_calls) = msg
+            .get("tool_calls")
+            .cloned()
+            .and_then(|tc| tc.as_array().cloned())
+        {
+            let filtered: Vec<serde_json::Value> = tool_calls
+                .into_iter()
+                .filter(|tc| {
+                    tc.get("id")
+                        .and_then(|id| id.as_str())
+                        .map(|id| valid_tool_call_ids.contains(id))
+                        .unwrap_or(false)
+                })
+                .collect();
+            if filtered.is_empty() {
+                // Remove the tool_calls key entirely
+                if let Some(obj) = msg.as_object_mut() {
+                    obj.remove("tool_calls");
+                }
+            } else {
+                msg["tool_calls"] = serde_json::json!(filtered);
+            }
+        }
+    }
+}
+
+/// Inject Gemini 3 thought_signature bypass on assistant messages with tool_calls.
+///
+/// Gemini 3 models require a `thought_signature` in `extra_content.google` on
+/// the first `tool_calls` entry of each assistant message. When the real
+/// signature isn't available (old history, other providers), we use the
+/// officially documented bypass value.
+///
+/// Non-Gemini providers ignore the `extra_content` field, so this is safe to
+/// run unconditionally.
+fn inject_thought_signature_bypass(messages: &mut [serde_json::Value]) {
+    const BYPASS: &str = "skip_thought_signature_validator";
+
+    for msg in messages.iter_mut() {
+        if msg.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+            continue;
+        }
+        if let Some(tool_calls) = msg.get_mut("tool_calls").and_then(|tc| tc.as_array_mut()) {
+            // Only the first tool_call in each step needs the signature
+            if let Some(first_tc) = tool_calls.first_mut() {
+                // Don't overwrite a real signature if one already exists
+                let has_signature = first_tc
+                    .get("extra_content")
+                    .and_then(|ec| ec.get("google"))
+                    .and_then(|g| g.get("thought_signature"))
+                    .and_then(|ts| ts.as_str())
+                    .is_some();
+
+                if !has_signature {
+                    first_tc["extra_content"] = serde_json::json!({
+                        "google": {
+                            "thought_signature": BYPASS
+                        }
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn convert_message_to_openai(
+    msg: &ChatMessage,
+    tool_name_map: &HashMap<String, String>,
+) -> Result<serde_json::Value, Temm1eError> {
     let role = match msg.role {
         Role::System => "system",
         Role::User => "user",
@@ -309,11 +470,16 @@ fn convert_message_to_openai(msg: &ChatMessage) -> Result<serde_json::Value, Tem
                         ..
                     } = part
                     {
-                        tool_messages.push(serde_json::json!({
+                        let mut msg_obj = serde_json::json!({
                             "role": "tool",
                             "tool_call_id": tool_use_id,
                             "content": content,
-                        }));
+                        });
+                        // Include `name` field — required by Gemini, accepted by OpenAI.
+                        if let Some(name) = tool_name_map.get(tool_use_id) {
+                            msg_obj["name"] = serde_json::json!(name);
+                        }
+                        tool_messages.push(msg_obj);
                     }
                 }
                 if tool_messages.len() == 1 {
@@ -430,10 +596,11 @@ impl Provider for OpenAICompatProvider {
         for (k, v) in &self.extra_headers {
             req = req.header(k.as_str(), v.as_str());
         }
-        let response =
-            req.json(&body).send().await.map_err(|e| {
-                Temm1eError::Provider(format!("OpenAI-compat request failed: {e}"))
-            })?;
+        let response = req
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| Temm1eError::Provider(format!("OpenAI-compat request failed: {e}")))?;
 
         let status = response.status();
         if !status.is_success() {
@@ -854,7 +1021,7 @@ mod tests {
             role: Role::User,
             content: MessageContent::Text("Hello".to_string()),
         };
-        let json = convert_message_to_openai(&msg).unwrap();
+        let json = convert_message_to_openai(&msg, &HashMap::new()).unwrap();
         assert_eq!(json["role"], "user");
         assert_eq!(json["content"], "Hello");
     }
@@ -874,7 +1041,7 @@ mod tests {
                 },
             ]),
         };
-        let json = convert_message_to_openai(&msg).unwrap();
+        let json = convert_message_to_openai(&msg, &HashMap::new()).unwrap();
         assert_eq!(json["role"], "assistant");
         assert_eq!(json["content"], "Let me check");
         let tool_calls = json["tool_calls"].as_array().unwrap();
@@ -892,10 +1059,18 @@ mod tests {
                 is_error: false,
             }]),
         };
-        let json = convert_message_to_openai(&msg).unwrap();
+        // Without name map — no name field
+        let json = convert_message_to_openai(&msg, &HashMap::new()).unwrap();
         assert_eq!(json["role"], "tool");
         assert_eq!(json["tool_call_id"], "call_1");
         assert_eq!(json["content"], "file.txt");
+        assert!(json.get("name").is_none());
+
+        // With name map — name field included (required by Gemini)
+        let mut name_map = HashMap::new();
+        name_map.insert("call_1".to_string(), "shell".to_string());
+        let json = convert_message_to_openai(&msg, &name_map).unwrap();
+        assert_eq!(json["name"], "shell");
     }
 
     #[test]
@@ -912,7 +1087,7 @@ mod tests {
                 },
             ]),
         };
-        let json = convert_message_to_openai(&msg).unwrap();
+        let json = convert_message_to_openai(&msg, &HashMap::new()).unwrap();
         assert_eq!(json["role"], "user");
         let content = json["content"].as_array().unwrap();
         assert_eq!(content.len(), 2);

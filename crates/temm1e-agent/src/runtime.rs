@@ -1713,9 +1713,7 @@ async fn author_blueprint(
 
     // LLM decided this task isn't worth a blueprint
     if text.trim().eq_ignore_ascii_case("skip") {
-        return Err(Temm1eError::Provider(
-            "LLM declined blueprint: SKIP".into(),
-        ));
+        return Err(Temm1eError::Provider("LLM declined blueprint: SKIP".into()));
     }
 
     let mut bp = crate::blueprint::parse_blueprint(&text)

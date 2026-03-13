@@ -414,6 +414,16 @@ pub async fn build_context(
         });
     }
 
+    // ── Strip stale tool messages from older history ───────────────
+    // Tool call/result pairs from previous sessions are ephemeral
+    // execution artifacts that cause cross-provider format errors (e.g.,
+    // Gemini requires strict ordering and a `name` field on tool results).
+    // Strip them from older history — recent messages (current session)
+    // are untouched.  Text parts in mixed messages are preserved.
+    // See docs/CROSS_PROVIDER_HISTORY_SANITIZATION.md for full design.
+    let mut kept_older = kept_older;
+    strip_tool_messages_from_older(&mut kept_older);
+
     // ── Chat History Digest ────────────────────────────────────────
     // Extract a clean User ↔ Assistant conversation thread from the
     // full history (which is dominated by tool outputs). This is injected
@@ -524,6 +534,63 @@ pub async fn build_context(
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/// Strip tool execution artifacts from older history messages.
+///
+/// Removes:
+/// - `Role::Tool` messages entirely
+/// - `ContentPart::ToolUse` and `ContentPart::ToolResult` parts from other messages
+/// - Messages that become empty after part removal
+///
+/// Preserves:
+/// - `ContentPart::Text` parts (the assistant's natural language)
+/// - `ContentPart::Image` parts (handled separately by vision stripping)
+/// - All `Role::User` messages unchanged
+///
+/// Follows the same retain-and-flatten pattern as image stripping (lines 477-503).
+fn strip_tool_messages_from_older(messages: &mut Vec<ChatMessage>) {
+    let before = messages.len();
+    let mut tool_parts_stripped = 0usize;
+
+    // Step 1: Remove Role::Tool messages entirely
+    messages.retain(|msg| !matches!(msg.role, Role::Tool));
+
+    // Step 2: Strip ToolUse/ToolResult parts from remaining messages
+    for msg in messages.iter_mut() {
+        if let MessageContent::Parts(parts) = &mut msg.content {
+            let part_count_before = parts.len();
+            parts.retain(|p| {
+                !matches!(
+                    p,
+                    ContentPart::ToolUse { .. } | ContentPart::ToolResult { .. }
+                )
+            });
+            tool_parts_stripped += part_count_before - parts.len();
+
+            // Flatten Parts([Text{...}]) → Text(...) when only text remains
+            if parts.len() == 1 {
+                if let Some(ContentPart::Text { text }) = parts.first().cloned() {
+                    msg.content = MessageContent::Text(text);
+                }
+            }
+        }
+    }
+
+    // Step 3: Remove messages that became empty after stripping
+    messages.retain(|msg| match &msg.content {
+        MessageContent::Text(t) => !t.is_empty(),
+        MessageContent::Parts(parts) => !parts.is_empty(),
+    });
+
+    let removed = before - messages.len();
+    if removed > 0 || tool_parts_stripped > 0 {
+        debug!(
+            messages_removed = removed,
+            tool_parts_stripped = tool_parts_stripped,
+            "Stripped stale tool messages from older history"
+        );
+    }
+}
 
 /// Build a chat history digest that separates human conversation from tool
 /// execution logs. Returns `None` if there are fewer than 2 user messages
@@ -1195,5 +1262,199 @@ mod tests {
             }
         });
         assert!(has_digest, "Expected chat digest in context messages");
+    }
+
+    // ── strip_tool_messages_from_older tests ──────────────────────
+
+    fn tool_use_msg(name: &str, id: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::Assistant,
+            content: MessageContent::Parts(vec![ContentPart::ToolUse {
+                id: id.to_string(),
+                name: name.to_string(),
+                input: serde_json::json!({"cmd": "ls"}),
+            }]),
+        }
+    }
+
+    fn tool_result_msg(id: &str, output: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::Tool,
+            content: MessageContent::Parts(vec![ContentPart::ToolResult {
+                tool_use_id: id.to_string(),
+                content: output.to_string(),
+                is_error: false,
+            }]),
+        }
+    }
+
+    fn user_msg(text: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::User,
+            content: MessageContent::Text(text.to_string()),
+        }
+    }
+
+    fn assistant_msg(text: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::Assistant,
+            content: MessageContent::Text(text.to_string()),
+        }
+    }
+
+    fn mixed_assistant_msg(text: &str, tool_name: &str, tool_id: &str) -> ChatMessage {
+        ChatMessage {
+            role: Role::Assistant,
+            content: MessageContent::Parts(vec![
+                ContentPart::Text {
+                    text: text.to_string(),
+                },
+                ContentPart::ToolUse {
+                    id: tool_id.to_string(),
+                    name: tool_name.to_string(),
+                    input: serde_json::json!({}),
+                },
+            ]),
+        }
+    }
+
+    #[test]
+    fn strip_removes_tool_role_messages() {
+        let mut messages = vec![
+            user_msg("Hello"),
+            assistant_msg("Let me check"),
+            tool_use_msg("shell", "t1"),
+            tool_result_msg("t1", "file.txt"),
+            assistant_msg("Found file.txt"),
+        ];
+
+        strip_tool_messages_from_older(&mut messages);
+
+        assert_eq!(messages.len(), 3);
+        assert!(matches!(messages[0].role, Role::User));
+        assert!(matches!(messages[2].role, Role::Assistant));
+        // The pure tool_use assistant message should be removed (empty after strip)
+        for msg in &messages {
+            assert!(!matches!(msg.role, Role::Tool));
+        }
+    }
+
+    #[test]
+    fn strip_preserves_text_in_mixed_assistant() {
+        let mut messages = vec![
+            user_msg("Deploy"),
+            mixed_assistant_msg("Let me check that for you", "shell", "t1"),
+            tool_result_msg("t1", "success"),
+            assistant_msg("Done"),
+        ];
+
+        strip_tool_messages_from_older(&mut messages);
+
+        // 3 messages: user, assistant (text only), assistant
+        assert_eq!(messages.len(), 3);
+        // The mixed message should be flattened to Text
+        match &messages[1].content {
+            MessageContent::Text(t) => assert_eq!(t, "Let me check that for you"),
+            MessageContent::Parts(_) => panic!("Expected Text, got Parts"),
+        }
+    }
+
+    #[test]
+    fn strip_removes_pure_tool_use_assistant() {
+        let mut messages = vec![
+            user_msg("Run ls"),
+            tool_use_msg("shell", "t1"),
+            tool_result_msg("t1", "files"),
+            assistant_msg("Here are your files"),
+        ];
+
+        strip_tool_messages_from_older(&mut messages);
+
+        // tool_use_msg becomes empty Parts after stripping → removed
+        // tool_result_msg is Role::Tool → removed
+        assert_eq!(messages.len(), 2);
+        assert!(matches!(messages[0].role, Role::User));
+        assert!(matches!(messages[1].role, Role::Assistant));
+    }
+
+    #[test]
+    fn strip_preserves_user_messages() {
+        let mut messages = vec![
+            user_msg("Hello"),
+            user_msg("How are you?"),
+            assistant_msg("Good!"),
+        ];
+
+        strip_tool_messages_from_older(&mut messages);
+
+        assert_eq!(messages.len(), 3);
+    }
+
+    #[test]
+    fn strip_empty_input() {
+        let mut messages: Vec<ChatMessage> = vec![];
+        strip_tool_messages_from_older(&mut messages);
+        assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn strip_no_tool_messages() {
+        let mut messages = vec![
+            user_msg("Hi"),
+            assistant_msg("Hey!"),
+            user_msg("What's up?"),
+            assistant_msg("Not much"),
+        ];
+
+        strip_tool_messages_from_older(&mut messages);
+
+        assert_eq!(messages.len(), 4);
+    }
+
+    #[test]
+    fn strip_preserves_image_parts() {
+        let mut messages = vec![ChatMessage {
+            role: Role::Assistant,
+            content: MessageContent::Parts(vec![
+                ContentPart::Text {
+                    text: "Here's what I found".to_string(),
+                },
+                ContentPart::ToolUse {
+                    id: "t1".to_string(),
+                    name: "shell".to_string(),
+                    input: serde_json::json!({}),
+                },
+                ContentPart::Image {
+                    media_type: "image/png".to_string(),
+                    data: "abc123".to_string(),
+                },
+            ]),
+        }];
+
+        strip_tool_messages_from_older(&mut messages);
+
+        assert_eq!(messages.len(), 1);
+        match &messages[0].content {
+            MessageContent::Parts(parts) => {
+                assert_eq!(parts.len(), 2); // Text + Image, ToolUse stripped
+                assert!(matches!(&parts[0], ContentPart::Text { .. }));
+                assert!(matches!(&parts[1], ContentPart::Image { .. }));
+            }
+            _ => panic!("Expected Parts"),
+        }
+    }
+
+    #[test]
+    fn strip_all_tool_messages_leaves_empty() {
+        let mut messages = vec![
+            tool_use_msg("shell", "t1"),
+            tool_result_msg("t1", "output"),
+            tool_use_msg("browser", "t2"),
+            tool_result_msg("t2", "html"),
+        ];
+
+        strip_tool_messages_from_older(&mut messages);
+
+        assert!(messages.is_empty());
     }
 }

@@ -10,7 +10,9 @@
 
 use serde::{Deserialize, Serialize};
 use temm1e_core::types::error::Temm1eError;
-use temm1e_core::types::message::{ChatMessage, CompletionRequest, ContentPart, Usage};
+use temm1e_core::types::message::{
+    ChatMessage, CompletionRequest, ContentPart, MessageContent, Role, Usage,
+};
 use temm1e_core::types::optimization::ExecutionProfile;
 use temm1e_core::Provider;
 use tracing::{debug, info, warn};
@@ -133,11 +135,29 @@ pub async fn classify_message(
     history: &[ChatMessage],
     available_blueprint_categories: &[String],
 ) -> Result<(MessageClassification, Usage), Temm1eError> {
-    // Use last 10 history messages for conversational context.
+    // Use last 10 *text* history messages for conversational context.
     // History already includes the current user message (pushed by runtime
     // before calling classify), so we don't add it again.
-    let context_start = history.len().saturating_sub(10);
-    let messages: Vec<ChatMessage> = history[context_start..].to_vec();
+    // Strip tool messages (Role::Tool, ToolUse/ToolResult parts) — the classifier
+    // only needs user/assistant text for classification, and tool messages cause
+    // errors with providers like Gemini that enforce strict tool_call ordering.
+    let messages: Vec<ChatMessage> = history
+        .iter()
+        .filter(|msg| !matches!(msg.role, Role::Tool))
+        .filter(|msg| {
+            // Also skip assistant messages that are purely tool calls (no text)
+            if matches!(msg.role, Role::Assistant) {
+                if let MessageContent::Parts(parts) = &msg.content {
+                    return parts.iter().any(|p| matches!(p, ContentPart::Text { .. }));
+                }
+            }
+            true
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    // Take last 10 after filtering
+    let context_start = messages.len().saturating_sub(10);
+    let messages: Vec<ChatMessage> = messages[context_start..].to_vec();
 
     let system_prompt = build_classify_prompt(available_blueprint_categories);
 

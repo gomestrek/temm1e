@@ -448,8 +448,8 @@ pub fn build_tiered_system_prompt(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use temm1e_test_utils::MockTool;
     use std::path::PathBuf;
+    use temm1e_test_utils::MockTool;
 
     fn workspace() -> PathBuf {
         PathBuf::from("/tmp/temm1e-test")
