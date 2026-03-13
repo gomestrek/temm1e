@@ -202,7 +202,7 @@ Tokens expire after a while. This is normal.
 
 You did it!! I'm alive and talking to you. Here's where to go from here:
 
-- Read about [what makes me different](README.md#what-makes-temm1e-different) — the Finite Brain Model and Blueprint procedural memory
+- Read about [what makes me different](README.md#temm1e-is-built-different) — the Finite Brain Model and Blueprint procedural memory
 - Set up [Discord](docs/channels/discord.md) or [Slack](docs/channels/slack.md) channels
 - Explore [MCP servers](README.md#self-extending-tool-system) — you can let me install my own tools :3
 - Deploy on a VPS for 24/7 operation — see [SETUP_FOR_PROS.md](SETUP_FOR_PROS.md) for Docker and systemd guides
