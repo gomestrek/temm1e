@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use std::time::Duration;
 use temm1e_core::error::Temm1eError;
-use temm1e_core::{LambdaMemoryEntry, LambdaMemoryType, Memory, MemoryEntry, MemoryEntryType, SearchOpts};
+use temm1e_core::{
+    LambdaMemoryEntry, LambdaMemoryType, Memory, MemoryEntry, MemoryEntryType, SearchOpts,
+};
 use tokio::time::{sleep, timeout};
 use tracing::{debug, info, warn};
 
@@ -81,12 +83,10 @@ impl SqliteMemory {
         .await
         .map_err(|e| Temm1eError::Memory(format!("Failed to create lambda_memories: {e}")))?;
 
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_lm_importance ON lambda_memories(importance)",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| Temm1eError::Memory(format!("Failed to create lambda index: {e}")))?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_lm_importance ON lambda_memories(importance)")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| Temm1eError::Memory(format!("Failed to create lambda index: {e}")))?;
 
         sqlx::query(
             "CREATE INDEX IF NOT EXISTS idx_lm_last_accessed ON lambda_memories(last_accessed)",
@@ -95,12 +95,10 @@ impl SqliteMemory {
         .await
         .map_err(|e| Temm1eError::Memory(format!("Failed to create lambda index: {e}")))?;
 
-        sqlx::query(
-            "CREATE INDEX IF NOT EXISTS idx_lm_explicit ON lambda_memories(explicit_save)",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| Temm1eError::Memory(format!("Failed to create lambda index: {e}")))?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_lm_explicit ON lambda_memories(explicit_save)")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| Temm1eError::Memory(format!("Failed to create lambda index: {e}")))?;
 
         // FTS5 virtual table for BM25 search on summary/essence/tags.
         // content='' makes it an external content table (we manage sync ourselves).
@@ -342,13 +340,12 @@ impl Memory for SqliteMemory {
 
         // Sync FTS5: insert the searchable fields with the hash as the rowid substitute.
         // We use the hash's rowid from the main table.
-        let rowid: Option<(i64,)> = sqlx::query_as(
-            "SELECT rowid FROM lambda_memories WHERE hash = ?",
-        )
-        .bind(&entry.hash)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| Temm1eError::Memory(format!("lambda_store FTS rowid lookup: {e}")))?;
+        let rowid: Option<(i64,)> =
+            sqlx::query_as("SELECT rowid FROM lambda_memories WHERE hash = ?")
+                .bind(&entry.hash)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| Temm1eError::Memory(format!("lambda_store FTS rowid lookup: {e}")))?;
 
         if let Some((rid,)) = rowid {
             // Delete old FTS entry if exists (for REPLACE case)
@@ -461,13 +458,12 @@ impl Memory for SqliteMemory {
         // Resolve rowids back to hashes
         let mut results = Vec::with_capacity(rows.len());
         for (rowid, rank) in rows {
-            let hash_row: Option<(String,)> = sqlx::query_as(
-                "SELECT hash FROM lambda_memories WHERE rowid = ?",
-            )
-            .bind(rowid)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|e| Temm1eError::Memory(format!("lambda_fts hash resolve: {e}")))?;
+            let hash_row: Option<(String,)> =
+                sqlx::query_as("SELECT hash FROM lambda_memories WHERE rowid = ?")
+                    .bind(rowid)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| Temm1eError::Memory(format!("lambda_fts hash resolve: {e}")))?;
 
             if let Some((hash,)) = hash_row {
                 results.push((hash, rank));
@@ -476,11 +472,7 @@ impl Memory for SqliteMemory {
         Ok(results)
     }
 
-    async fn lambda_gc(
-        &self,
-        now_epoch: u64,
-        max_age_secs: u64,
-    ) -> Result<usize, Temm1eError> {
+    async fn lambda_gc(&self, now_epoch: u64, max_age_secs: u64) -> Result<usize, Temm1eError> {
         let cutoff = (now_epoch.saturating_sub(max_age_secs)) as i64;
         let result = sqlx::query(
             "DELETE FROM lambda_memories \

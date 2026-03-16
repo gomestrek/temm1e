@@ -156,11 +156,7 @@ pub trait Memory: Send + Sync {
     }
 
     /// Garbage collect expired λ-memories. Returns count of deleted entries.
-    async fn lambda_gc(
-        &self,
-        _now_epoch: u64,
-        _max_age_secs: u64,
-    ) -> Result<usize, Temm1eError> {
+    async fn lambda_gc(&self, _now_epoch: u64, _max_age_secs: u64) -> Result<usize, Temm1eError> {
         Ok(0)
     }
 }

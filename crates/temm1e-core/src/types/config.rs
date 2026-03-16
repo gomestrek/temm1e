@@ -226,11 +226,21 @@ pub struct LambdaMemoryConfig {
     pub candidate_limit: usize,
 }
 
-fn default_decay_lambda() -> f32 { 0.01 }
-fn default_hot() -> f32 { 2.0 }
-fn default_warm() -> f32 { 1.0 }
-fn default_cool() -> f32 { 0.3 }
-fn default_candidate_limit() -> usize { 500 }
+fn default_decay_lambda() -> f32 {
+    0.01
+}
+fn default_hot() -> f32 {
+    2.0
+}
+fn default_warm() -> f32 {
+    1.0
+}
+fn default_cool() -> f32 {
+    0.3
+}
+fn default_candidate_limit() -> usize {
+    500
+}
 
 impl Default for LambdaMemoryConfig {
     fn default() -> Self {

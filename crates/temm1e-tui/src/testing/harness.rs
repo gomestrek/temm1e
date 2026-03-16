@@ -1,9 +1,11 @@
 //! TestBackend-based TUI test harness.
 
 #[cfg(test)]
-pub use inner::*;
+#[allow(unused_imports)]
+pub(crate) use inner::*;
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod inner {
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;

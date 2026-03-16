@@ -954,7 +954,7 @@ async fn main() -> Result<()> {
     if _is_tui {
         let config_path = cli.config.as_deref().map(std::path::Path::new);
         let config = temm1e_core::config::load_config(config_path)?;
-        return temm1e_tui::launch_tui(config).await.map_err(Into::into);
+        return temm1e_tui::launch_tui(config).await;
     }
 
     // Initialize health endpoint uptime clock
@@ -1367,8 +1367,11 @@ async fn main() -> Result<()> {
                 .map(|ch| Arc::new(SecretCensorChannel { inner: ch }) as Arc<dyn Channel>);
             let shared_mode: temm1e_tools::SharedMode =
                 Arc::new(tokio::sync::RwLock::new(config.mode));
-            let shared_memory_strategy: Arc<tokio::sync::RwLock<temm1e_core::types::config::MemoryStrategy>> =
-                Arc::new(tokio::sync::RwLock::new(temm1e_core::types::config::MemoryStrategy::Lambda));
+            let shared_memory_strategy: Arc<
+                tokio::sync::RwLock<temm1e_core::types::config::MemoryStrategy>,
+            > = Arc::new(tokio::sync::RwLock::new(
+                temm1e_core::types::config::MemoryStrategy::Lambda,
+            ));
             let mut tools = temm1e_tools::create_tools(
                 &config.tools,
                 censored_channel,
@@ -1487,7 +1490,8 @@ async fn main() -> Result<()> {
                         )
                         .with_v2_optimizations(config.agent.v2_optimizations)
                         .with_parallel_phases(config.agent.parallel_phases)
-                        .with_shared_mode(shared_mode.clone()).with_shared_memory_strategy(shared_memory_strategy.clone()),
+                        .with_shared_mode(shared_mode.clone())
+                        .with_shared_memory_strategy(shared_memory_strategy.clone()),
                     );
                     *agent_state.write().await = Some(agent);
                     tracing::info!(provider = %pname, model = %model, "Agent initialized");
@@ -1522,7 +1526,8 @@ async fn main() -> Result<()> {
                                     )
                                     .with_v2_optimizations(config.agent.v2_optimizations)
                                     .with_parallel_phases(config.agent.parallel_phases)
-                                    .with_shared_mode(shared_mode.clone()).with_shared_memory_strategy(shared_memory_strategy.clone()),
+                                    .with_shared_mode(shared_mode.clone())
+                                    .with_shared_memory_strategy(shared_memory_strategy.clone()),
                                 );
                                 *agent_state.write().await = Some(agent);
                                 tracing::info!(provider = "openai-codex", model = %model, "Agent initialized via Codex OAuth");
@@ -3460,8 +3465,11 @@ Just type a message to chat with the AI agent.",
             });
             let shared_mode: temm1e_tools::SharedMode =
                 Arc::new(tokio::sync::RwLock::new(config.mode));
-            let shared_memory_strategy: Arc<tokio::sync::RwLock<temm1e_core::types::config::MemoryStrategy>> =
-                Arc::new(tokio::sync::RwLock::new(temm1e_core::types::config::MemoryStrategy::Lambda));
+            let shared_memory_strategy: Arc<
+                tokio::sync::RwLock<temm1e_core::types::config::MemoryStrategy>,
+            > = Arc::new(tokio::sync::RwLock::new(
+                temm1e_core::types::config::MemoryStrategy::Lambda,
+            ));
             let mut tools_template = temm1e_tools::create_tools(
                 &config.tools,
                 Some(censored_cli),
@@ -3585,7 +3593,8 @@ Just type a message to chat with the AI agent.",
                                 )
                                 .with_v2_optimizations(v2_opt)
                                 .with_parallel_phases(pp_opt)
-                                .with_shared_mode(shared_mode.clone()).with_shared_memory_strategy(shared_memory_strategy.clone()),
+                                .with_shared_mode(shared_mode.clone())
+                                .with_shared_memory_strategy(shared_memory_strategy.clone()),
                             );
                             println!("Connected to {} (model: {})", pname, model);
                             if max_spend > 0.0 {
@@ -3632,7 +3641,8 @@ Just type a message to chat with the AI agent.",
                                     )
                                     .with_v2_optimizations(v2_opt)
                                     .with_parallel_phases(pp_opt)
-                                    .with_shared_mode(shared_mode.clone()).with_shared_memory_strategy(shared_memory_strategy.clone()),
+                                    .with_shared_mode(shared_mode.clone())
+                                    .with_shared_memory_strategy(shared_memory_strategy.clone()),
                                 );
                                 println!(
                                     "Connected to openai-codex via Codex OAuth (model: {})",
@@ -3788,7 +3798,11 @@ Just type a message to chat with the AI agent.",
 
                 // /memory — switch memory strategy
                 if cmd_lower == "/memory" || cmd_lower.starts_with("/memory ") {
-                    let args = if cmd_lower == "/memory" { "" } else { msg_text.trim()["/memory".len()..].trim() };
+                    let args = if cmd_lower == "/memory" {
+                        ""
+                    } else {
+                        msg_text.trim()["/memory".len()..].trim()
+                    };
                     let args_lower = args.to_lowercase();
                     if args_lower.is_empty() || args_lower == "status" {
                         let current = shared_memory_strategy.read().await;
@@ -3800,10 +3814,12 @@ Just type a message to chat with the AI agent.",
                             *current,
                         );
                     } else if args_lower == "lambda" || args_lower == "λ" {
-                        *shared_memory_strategy.write().await = temm1e_core::types::config::MemoryStrategy::Lambda;
+                        *shared_memory_strategy.write().await =
+                            temm1e_core::types::config::MemoryStrategy::Lambda;
                         println!("\nSwitched to λ-Memory\nDecay-scored fidelity tiers • cross-session persistence • hash-based recall\n");
                     } else if args_lower == "echo" {
-                        *shared_memory_strategy.write().await = temm1e_core::types::config::MemoryStrategy::Echo;
+                        *shared_memory_strategy.write().await =
+                            temm1e_core::types::config::MemoryStrategy::Echo;
                         println!("\nSwitched to Echo Memory\nKeyword search over context window • no persistence between sessions\n");
                     } else {
                         println!("\nUnknown strategy. Use: /memory lambda or /memory echo\n");
@@ -3899,7 +3915,10 @@ Just type a message to chat with the AI agent.",
                                                 )
                                                 .with_v2_optimizations(v2_opt)
                                                 .with_parallel_phases(pp_opt)
-                                                .with_shared_mode(shared_mode.clone()).with_shared_memory_strategy(shared_memory_strategy.clone()),
+                                                .with_shared_mode(shared_mode.clone())
+                                                .with_shared_memory_strategy(
+                                                    shared_memory_strategy.clone(),
+                                                ),
                                             );
                                         }
                                         mcp_manager.take_tools_changed();
@@ -3946,7 +3965,10 @@ Just type a message to chat with the AI agent.",
                                         )
                                         .with_v2_optimizations(v2_opt)
                                         .with_parallel_phases(pp_opt)
-                                        .with_shared_mode(shared_mode.clone()).with_shared_memory_strategy(shared_memory_strategy.clone()),
+                                        .with_shared_mode(shared_mode.clone())
+                                        .with_shared_memory_strategy(
+                                            shared_memory_strategy.clone(),
+                                        ),
                                     );
                                 }
                                 mcp_manager.take_tools_changed();
@@ -3988,7 +4010,10 @@ Just type a message to chat with the AI agent.",
                                         )
                                         .with_v2_optimizations(v2_opt)
                                         .with_parallel_phases(pp_opt)
-                                        .with_shared_mode(shared_mode.clone()).with_shared_memory_strategy(shared_memory_strategy.clone()),
+                                        .with_shared_mode(shared_mode.clone())
+                                        .with_shared_memory_strategy(
+                                            shared_memory_strategy.clone(),
+                                        ),
                                     );
                                 }
                                 mcp_manager.take_tools_changed();
@@ -4069,7 +4094,10 @@ Just type a message to chat with the AI agent.",
                                             )
                                             .with_v2_optimizations(v2_opt)
                                             .with_parallel_phases(pp_opt)
-                                            .with_shared_mode(shared_mode.clone()).with_shared_memory_strategy(shared_memory_strategy.clone()),
+                                            .with_shared_mode(shared_mode.clone())
+                                            .with_shared_memory_strategy(
+                                                shared_memory_strategy.clone(),
+                                            ),
                                         );
                                         println!(
                                             "\nAPI key securely received and verified! Configured {} with model {}.",
@@ -4138,7 +4166,8 @@ Just type a message to chat with the AI agent.",
                                 )
                                 .with_v2_optimizations(v2_opt)
                                 .with_parallel_phases(pp_opt)
-                                .with_shared_mode(shared_mode.clone()).with_shared_memory_strategy(shared_memory_strategy.clone()),
+                                .with_shared_mode(shared_mode.clone())
+                                .with_shared_memory_strategy(shared_memory_strategy.clone()),
                             );
                             println!(
                                 "\nAPI key verified! Configured {} with model {}.",

@@ -698,8 +698,7 @@ impl AgentRuntime {
             let prompt_tier = execution_profile.as_ref().map(|p| p.prompt_tier);
             let lambda_enabled = match &self.shared_memory_strategy {
                 Some(strategy) => {
-                    *strategy.read().await
-                        == temm1e_core::types::config::MemoryStrategy::Lambda
+                    *strategy.read().await == temm1e_core::types::config::MemoryStrategy::Lambda
                 }
                 None => false, // default: Echo Memory (user opts into λ-Memory via /memory lambda)
             };
@@ -964,8 +963,7 @@ impl AgentRuntime {
             // ── λ-Memory: parse <memory> blocks from response ──────
             if !text_parts.is_empty() {
                 let combined_for_lambda = text_parts.join("\n");
-                if let Some(parsed) =
-                    crate::lambda_memory::parse_memory_block(&combined_for_lambda)
+                if let Some(parsed) = crate::lambda_memory::parse_memory_block(&combined_for_lambda)
                 {
                     let user_text = extract_latest_user_text(&session.history);
                     let assistant_text =
@@ -981,8 +979,7 @@ impl AgentRuntime {
                         .unwrap_or_default()
                         .as_secs();
 
-                    let hash =
-                        crate::lambda_memory::make_hash(&session.session_id, rounds, now);
+                    let hash = crate::lambda_memory::make_hash(&session.session_id, rounds, now);
 
                     let is_explicit = user_text.to_lowercase().contains("remember");
 

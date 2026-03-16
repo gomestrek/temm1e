@@ -432,7 +432,7 @@ fn highlight_paths(text: &str, base: Style, link: Style) -> Vec<Span<'static>> {
 
     while !remaining.is_empty() {
         // Find the next path-like token
-        if let Some(pos) = remaining.find(|c: char| c == '/' || c == '~') {
+        if let Some(pos) = remaining.find(['/', '~']) {
             // Check if this looks like a file path
             let before = &remaining[..pos];
             let from_path = &remaining[pos..];
@@ -499,7 +499,7 @@ fn highlight_paths(text: &str, base: Style, link: Style) -> Vec<Span<'static>> {
         if let Some(dot_pos) = remaining.find('.') {
             // Find the word containing the dot
             let word_start = remaining[..dot_pos]
-                .rfind(|c: char| c == ' ' || c == '(' || c == '[' || c == '"' || c == '\'')
+                .rfind([' ', '(', '[', '"', '\''])
                 .map(|p| p + 1)
                 .unwrap_or(0);
             let after_dot = &remaining[dot_pos + 1..];

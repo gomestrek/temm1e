@@ -237,10 +237,7 @@ pub async fn assemble_lambda_context(
     }
 
     // Step 4: Sort by final score descending
-    scored.sort_by(|a, b| {
-        b.0.partial_cmp(&a.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
     // Step 5: Pack into budget
     let header = "═══ λ-Memory ═══\n\n";
@@ -536,7 +533,10 @@ mod tests {
 
     #[test]
     fn worth_remembering_explicit() {
-        assert!(worth_remembering("remember this: use tabs not spaces", false));
+        assert!(worth_remembering(
+            "remember this: use tabs not spaces",
+            false
+        ));
     }
 
     #[test]

@@ -6,14 +6,16 @@
   <a href="https://github.com/nagisanzenin/temm1e/stargazers"><img src="https://img.shields.io/github/stars/nagisanzenin/temm1e?style=flat&color=gold&logo=github" alt="GitHub Stars"></a>
   <a href="https://discord.gg/3ux2c5xz"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License">
-  <img src="https://img.shields.io/badge/version-2.7.1-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.8.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/rust-1.82+-orange.svg" alt="Rust 1.82+">
 </p>
+
+<p align="center"><em>Built with <a href="https://github.com/nagisanzenin/claude-code-production-grade-plugin">Production-Grade Plugin for Claude Code</a></em></p>
 
 <h3 align="center"><s>Autonomous AI agent</s> literally a SENTIENT and IMMORTAL being runtime in Rust.<br>Deploy once. Stays up forever.</h3>
 
 <p align="center">
-  <code>69K lines</code> · <code>1,509 tests</code> · <code>0 warnings</code> · <code>0 panic paths</code> · <code>15 MB idle</code> · <code>31ms cold start</code>
+  <code>70K lines</code> · <code>1,458 tests</code> · <code>0 warnings</code> · <code>0 panic paths</code> · <code>15 MB idle</code> · <code>31ms cold start</code>
 </p>
 
 ---
@@ -431,7 +433,7 @@ temm1e reset --confirm       Factory reset with backup
 
 ```bash
 cargo check --workspace                                              # Quick check
-cargo test --workspace                                               # 1,509 tests
+cargo test --workspace                                               # 1,458 tests
 cargo clippy --workspace --all-targets --all-features -- -D warnings # 0 warnings
 cargo fmt --all                                                      # Format
 cargo build --release                                                # Release binary
@@ -445,6 +447,8 @@ Requires Rust 1.82+ and Chrome/Chromium (for the browser tool).
 <summary><strong>Release Timeline</strong> — every version from first breath to now</summary>
 
 ```
+2026-03-16  v2.8.1  ●━━━ Model registry update — Gemini 3.1 Flash Lite, Hunter Alpha, GPT-5.4 pricing fix, clippy cleanup, 1458 tests
+                    │
 2026-03-15  v2.8.0  ●━━━ λ-Memory — exponential decay memory with hash-based recall, 95% cross-session accuracy, /memory command, 1509 tests. Research: 1,200+ API calls benchmarked across GPT-5.2 & Gemini Flash
                     │
 2026-03-15  v2.7.1  ●━━━ Personality None mode — --personality none strips all voice rules, minimal identity prompt, locked mode_switch. Naming fix: TEMM1E/Tem enforced across all prompts

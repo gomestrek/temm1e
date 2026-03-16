@@ -232,11 +232,14 @@ pub async fn build_context(
         // Get model skull size for dynamic budgeting
         let (skull, max_output) = model_registry::model_limits(model);
         let bone = fixed_tokens + blueprint_tokens_used;
-        let lambda_max = crate::lambda_memory::lambda_budget(skull, max_output, bone, recent_tokens);
+        let lambda_max =
+            crate::lambda_memory::lambda_budget(skull, max_output, bone, recent_tokens);
         let lambda_current = lambda_max.min(available_after_fixed_and_recent);
 
-        let mut lambda_config = temm1e_core::types::config::LambdaMemoryConfig::default();
-        lambda_config.enabled = lambda_enabled;
+        let lambda_config = temm1e_core::types::config::LambdaMemoryConfig {
+            enabled: lambda_enabled,
+            ..Default::default()
+        };
 
         let (lambda_text, tokens) = crate::lambda_memory::assemble_lambda_context(
             memory,
@@ -465,7 +468,8 @@ pub async fn build_context(
 
     let total_tokens = fixed_tokens + messages.iter().map(estimate_message_tokens).sum::<usize>();
 
-    let combined_memory_tokens = lambda_tokens_used + memory_tokens_used + knowledge_tokens_used + learning_tokens_used;
+    let combined_memory_tokens =
+        lambda_tokens_used + memory_tokens_used + knowledge_tokens_used + learning_tokens_used;
     debug!(
         system = system_tokens,
         tools = tool_def_tokens,

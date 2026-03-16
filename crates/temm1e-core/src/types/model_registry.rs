@@ -124,6 +124,10 @@ fn lookup(model: &str) -> Option<ModelLimits> {
             context_window: 1_048_576,
             max_output_tokens: 65_536,
         },
+        "gemini-3.1-flash-lite-preview" | "gemini-3.1-flash-lite" => ModelLimits {
+            context_window: 1_048_576,
+            max_output_tokens: 65_536,
+        },
         "gemini-2.5-flash" | "gemini-2.5-flash-preview-05-20" => ModelLimits {
             context_window: 1_048_576,
             max_output_tokens: 65_536,
@@ -247,6 +251,12 @@ fn lookup(model: &str) -> Option<ModelLimits> {
             }
         }
 
+        // ── OpenRouter Stealth ───────────────────────────────────────
+        "hunter-alpha" | "openrouter/hunter-alpha" => ModelLimits {
+            context_window: 1_048_576,
+            max_output_tokens: 32_000,
+        },
+
         // ── Microsoft ────────────────────────────────────────────────
         "phi-4" | "microsoft/phi-4" => ModelLimits {
             context_window: 16_384,
@@ -289,6 +299,7 @@ pub fn available_models_for_provider(provider: &str) -> Vec<&'static str> {
         "gemini" => vec![
             "gemini-3-flash-preview",
             "gemini-3.1-pro-preview",
+            "gemini-3.1-flash-lite-preview",
             "gemini-2.5-flash",
             "gemini-2.5-pro",
         ],
@@ -297,6 +308,7 @@ pub fn available_models_for_provider(provider: &str) -> Vec<&'static str> {
             "anthropic/claude-sonnet-4-6",
             "openai/gpt-5.2",
             "google/gemini-3-flash-preview",
+            "openrouter/hunter-alpha",
         ],
         "zai" | "zhipu" => vec![
             "glm-4.7-flash",
@@ -359,6 +371,10 @@ mod tests {
     #[test]
     fn known_gemini_models() {
         let (ctx, out) = model_limits("gemini-3-flash-preview");
+        assert_eq!(ctx, 1_048_576);
+        assert_eq!(out, 65_536);
+
+        let (ctx, out) = model_limits("gemini-3.1-flash-lite-preview");
         assert_eq!(ctx, 1_048_576);
         assert_eq!(out, 65_536);
     }
@@ -434,5 +450,16 @@ mod tests {
         let (ctx, out) = model_limits("MiniMax-M2.5");
         assert_eq!(ctx, 204_800);
         assert_eq!(out, 196_608);
+    }
+
+    #[test]
+    fn hunter_alpha_model() {
+        let (ctx, out) = model_limits("hunter-alpha");
+        assert_eq!(ctx, 1_048_576);
+        assert_eq!(out, 32_000);
+
+        let (ctx, out) = model_limits("openrouter/hunter-alpha");
+        assert_eq!(ctx, 1_048_576);
+        assert_eq!(out, 32_000);
     }
 }
