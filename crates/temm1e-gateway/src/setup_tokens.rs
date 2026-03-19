@@ -98,7 +98,7 @@ impl SetupLinkGenerator for SetupTokenStore {
     async fn generate_link(&self, chat_id: &str) -> String {
         let otk = self.generate(chat_id).await;
         let otk_hex = hex::encode(otk);
-        format!("https://nagisanzenin.github.io/temm1e/setup#{}", otk_hex)
+        format!("https://temm1e-labs.github.io/temm1e/setup#{}", otk_hex)
     }
 }
 

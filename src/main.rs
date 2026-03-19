@@ -1982,7 +1982,7 @@ async fn main() -> Result<()> {
                                         let otk = setup_tokens_worker.generate(&msg.chat_id).await;
                                         let otk_hex = hex::encode(otk);
                                         let link = format!(
-                                            "https://nagisanzenin.github.io/temm1e/setup#{}",
+                                            "https://temm1e-labs.github.io/temm1e/setup#{}",
                                             otk_hex
                                         );
                                         let reply = temm1e_core::types::message::OutboundMessage {
@@ -3472,7 +3472,7 @@ Just type a message to chat with the AI agent.",
                                             let otk = setup_tokens_worker.generate(&msg.chat_id).await;
                                             let otk_hex = hex::encode(otk);
                                             let link = format!(
-                                                "https://nagisanzenin.github.io/temm1e/setup#{}",
+                                                "https://temm1e-labs.github.io/temm1e/setup#{}",
                                                 otk_hex
                                             );
                                             let reply = temm1e_core::types::message::OutboundMessage {
@@ -3942,7 +3942,7 @@ Just type a message to chat with the AI agent.",
                 // Auto-generate OTK and show setup link immediately
                 let otk = setup_tokens.generate("cli").await;
                 let otk_hex = hex::encode(otk);
-                let link = format!("https://nagisanzenin.github.io/temm1e/setup#{}", otk_hex);
+                let link = format!("https://temm1e-labs.github.io/temm1e/setup#{}", otk_hex);
                 println!("\n{}", onboarding_message_with_link(&link));
                 println!("\n{}", ONBOARDING_REFERENCE);
             }
@@ -3979,7 +3979,7 @@ Just type a message to chat with the AI agent.",
                 if cmd_lower == "/addkey" {
                     let otk = setup_tokens.generate(&msg.chat_id).await;
                     let otk_hex = hex::encode(otk);
-                    let link = format!("https://nagisanzenin.github.io/temm1e/setup#{}", otk_hex);
+                    let link = format!("https://temm1e-labs.github.io/temm1e/setup#{}", otk_hex);
                     println!(
                         "\nSecure key setup:\n\n\
                          1. Open this link:\n{}\n\n\
@@ -4631,7 +4631,7 @@ Just type a message to chat with the AI agent.",
                     // Auto-generate fresh OTK for onboarding
                     let otk = setup_tokens.generate("cli").await;
                     let otk_hex = hex::encode(otk);
-                    let link = format!("https://nagisanzenin.github.io/temm1e/setup#{}", otk_hex);
+                    let link = format!("https://temm1e-labs.github.io/temm1e/setup#{}", otk_hex);
                     println!("\n{}", onboarding_message_with_link(&link));
                     println!("\n{}\n", ONBOARDING_REFERENCE);
                     eprint!("temm1e> ");
