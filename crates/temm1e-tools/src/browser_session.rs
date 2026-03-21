@@ -195,6 +195,17 @@ impl InteractiveBrowseSession {
             .arg("--disable-blink-features=AutomationControlled")
             .arg("--window-size=1280,900");
 
+        // Use the same cloned profile as BrowserTool for session continuity
+        let work_profile = dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("temm1e")
+            .join("browser-profile");
+        if work_profile.exists() {
+            builder = builder
+                .user_data_dir(&work_profile)
+                .arg("--no-first-run");
+        }
+
         if std::env::var("TEMM1E_CLEAN_BROWSER").unwrap_or_default() == "1" {
             let tp = std::env::temp_dir().join(format!("temm1e-login-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&tp);

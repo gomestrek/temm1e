@@ -316,6 +316,48 @@ impl BrowserTool {
     // ── Public API for /browser command ──────────────────────────────
 
     /// Check if the browser is currently running.
+    /// Find the user's real Chrome/Chromium profile directory (cross-platform).
+    fn find_chrome_profile() -> Option<std::path::PathBuf> {
+        let home = dirs::home_dir()?;
+
+        // Platform-specific Chrome profile locations
+        let candidates: Vec<std::path::PathBuf> = if cfg!(target_os = "macos") {
+            vec![
+                home.join("Library/Application Support/Google/Chrome/Default"),
+                home.join("Library/Application Support/Chromium/Default"),
+            ]
+        } else if cfg!(target_os = "windows") {
+            vec![
+                home.join("AppData/Local/Google/Chrome/User Data/Default"),
+                home.join("AppData/Local/Chromium/User Data/Default"),
+            ]
+        } else {
+            // Linux
+            vec![
+                home.join(".config/google-chrome/Default"),
+                home.join(".config/chromium/Default"),
+            ]
+        };
+
+        candidates.into_iter().find(|p| p.join("Cookies").exists())
+    }
+
+    /// Recursively copy a directory.
+    fn copy_dir_recursive(src: &std::path::Path, dest: &std::path::Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(dest)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let src_path = entry.path();
+            let dest_path = dest.join(entry.file_name());
+            if src_path.is_dir() {
+                Self::copy_dir_recursive(&src_path, &dest_path)?;
+            } else {
+                std::fs::copy(&src_path, &dest_path)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn is_running(&self) -> bool {
         self.browser
             .try_lock()
@@ -699,19 +741,64 @@ impl BrowserTool {
             .arg("--no-sandbox")
             .arg("--disable-dev-shm-usage");
 
-        // DEV/TEST ONLY: use a clean profile with no cookies when TEMM1E_CLEAN_BROWSER=1
-        // Production users keep their session persistence via the default Chrome profile
-        if std::env::var("TEMM1E_CLEAN_BROWSER").unwrap_or_default() == "1" {
-            let temp_profile =
-                std::env::temp_dir().join(format!("temm1e-chrome-clean-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&temp_profile); // ensure truly fresh
-            let _ = std::fs::create_dir_all(&temp_profile);
-            builder = builder.user_data_dir(&temp_profile).arg("--incognito");
-            tracing::info!(
-                profile = %temp_profile.display(),
-                "Browser using clean profile (TEMM1E_CLEAN_BROWSER=1)"
-            );
+        // ── Profile Strategy ──────────────────────────────────────────
+        // Clone the user's real Chrome profile (cookies, localStorage, sessions)
+        // into a working directory so we get: real sessions + debug port.
+        // Chrome blocks debug port on the real profile (SingletonLock), but a
+        // cloned profile works perfectly — sites see real cookies, no blank pages.
+        //
+        // Override: TEMM1E_CLEAN_BROWSER=1 forces a clean profile (no cookies).
+        let clean_browser = std::env::var("TEMM1E_CLEAN_BROWSER").unwrap_or_default() == "1";
+
+        let work_profile = dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("temm1e")
+            .join("browser-profile");
+
+        if clean_browser {
+            // Clean profile — no cookies, fresh start
+            let _ = std::fs::remove_dir_all(&work_profile);
+            let _ = std::fs::create_dir_all(&work_profile);
+            tracing::info!(profile = %work_profile.display(), "Browser: clean profile");
+        } else {
+            // Clone user's real Chrome profile if we haven't already
+            let default_subdir = work_profile.join("Default");
+            if !default_subdir.join("Cookies").exists() {
+                let _ = std::fs::create_dir_all(&default_subdir);
+                // Find the real Chrome profile
+                let real_profile = Self::find_chrome_profile();
+                if let Some(ref real) = real_profile {
+                    // Copy essential session files (NOT the whole profile — just auth data)
+                    for item in &["Cookies", "Cookies-journal"] {
+                        let src = real.join(item);
+                        if src.exists() {
+                            let _ = std::fs::copy(&src, default_subdir.join(item));
+                        }
+                    }
+                    // Copy Local Storage and Session Storage dirs
+                    for dir_name in &["Local Storage", "Session Storage"] {
+                        let src = real.join(dir_name);
+                        if src.is_dir() {
+                            let dest = default_subdir.join(dir_name);
+                            let _ = Self::copy_dir_recursive(&src, &dest);
+                        }
+                    }
+                    tracing::info!(
+                        from = %real.display(),
+                        to = %work_profile.display(),
+                        "Browser: cloned user's Chrome profile (cookies + storage)"
+                    );
+                } else {
+                    tracing::info!("Browser: no Chrome profile found, using fresh profile");
+                }
+            } else {
+                tracing::info!(profile = %work_profile.display(), "Browser: reusing existing work profile");
+            }
         }
+
+        builder = builder
+            .user_data_dir(&work_profile)
+            .arg("--no-first-run");
 
         // TEMM1E_NO_STEALTH=1 disables all anti-detection flags (for sites
         // like Zalo that detect stealth flags themselves and show blank pages)
