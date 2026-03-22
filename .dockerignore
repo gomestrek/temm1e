@@ -3,3 +3,11 @@ target/
 .env
 *.key
 *.pem
+*.db
+credentials.toml
+docs/
+Claude-Production-Grade-Suite/
+.claude/
+node_modules/
+*.html
+*.xml
