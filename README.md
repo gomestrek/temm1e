@@ -6,7 +6,7 @@
   <a href="https://github.com/nagisanzenin/temm1e/stargazers"><img src="https://img.shields.io/github/stars/nagisanzenin/temm1e?style=flat&color=gold&logo=github" alt="GitHub Stars"></a>
   <a href="https://discord.gg/3ux2c5xz"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License">
-  <img src="https://img.shields.io/badge/version-3.0.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.2.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/rust-1.82+-orange.svg" alt="Rust 1.82+">
 </p>
 
@@ -15,7 +15,7 @@
 <h3 align="center"><s>Autonomous AI agent</s> literally a SENTIENT and IMMORTAL being runtime in Rust.<br>Deploy once. Stays up forever.</h3>
 
 <p align="center">
-  <code>79K lines</code> · <code>1,638 tests</code> · <code>0 warnings</code> · <code>0 panic paths</code> · <code>15 MB idle</code> · <code>31ms cold start</code>
+  <code>95K lines</code> · <code>1,825 tests</code> · <code>0 warnings</code> · <code>0 panic paths</code> · <code>15 MB idle</code> · <code>31ms cold start</code>
 </p>
 
 ---
@@ -37,7 +37,8 @@ My brain has a BUDGET and I am VERY responsible with it.
 > **Server mode** — deploy as a persistent agent on Telegram/Discord/Slack:
 > ```bash
 > cargo build --release
-> export TELEGRAM_BOT_TOKEN="your-token"
+> export TELEGRAM_BOT_TOKEN="your-token"   # and/or
+> export DISCORD_BOT_TOKEN="your-token"    # either or both
 > ./target/release/temm1e start
 > ```
 
@@ -424,7 +425,7 @@ temm1e (binary)
 <td align="center"><strong>15 MB</strong><br><sub>Idle RAM</sub></td>
 <td align="center"><strong>31 ms</strong><br><sub>Cold start</sub></td>
 <td align="center"><strong>9.6 MB</strong><br><sub>Binary size</sub></td>
-<td align="center"><strong>1,638</strong><br><sub>Tests</sub></td>
+<td align="center"><strong>1,825</strong><br><sub>Tests</sub></td>
 <td align="center"><strong>8</strong><br><sub>AI Providers</sub></td>
 <td align="center"><strong>15</strong><br><sub>Built-in tools</sub></td>
 <td align="center"><strong>5</strong><br><sub>Channels</sub></td>
@@ -454,9 +455,21 @@ Two paths:
 ```bash
 git clone https://github.com/nagisanzenin/temm1e.git && cd temm1e
 cargo build --release
-export TELEGRAM_BOT_TOKEN="your-token"
-./target/release/temm1e auth login   # ChatGPT OAuth (or skip, paste API key in Telegram)
+export TELEGRAM_BOT_TOKEN="your-token"   # Telegram
+export DISCORD_BOT_TOKEN="your-token"    # Discord (either or both)
+./target/release/temm1e auth login   # ChatGPT OAuth (or skip, paste API key in chat)
 ./target/release/temm1e start
+```
+
+**Docker:**
+
+```bash
+docker run -d --name temm1e \
+  -p 8080:8080 \
+  -v ~/.temm1e:/data \
+  -e TELEGRAM_BOT_TOKEN="your-token" \
+  -e DISCORD_BOT_TOKEN="your-token" \
+  temm1e:latest
 ```
 
 ---
@@ -495,6 +508,8 @@ temm1e reset --confirm       Factory reset with backup
 /mcp add <name> <cmd>  Connect a new MCP server
 /eigentune           Self-tuning status and control
 /login <service>     OTK browser login (100+ services or custom URL)
+/timelimit           Show current task time limit
+/timelimit <secs>    Set hive task time limit (e.g. /timelimit 3600)
 ```
 
 ---
@@ -503,7 +518,7 @@ temm1e reset --confirm       Factory reset with backup
 
 ```bash
 cargo check --workspace                                              # Quick check
-cargo test --workspace                                               # 1,638 tests
+cargo test --workspace                                               # 1,825 tests
 cargo clippy --workspace --all-targets --all-features -- -D warnings # 0 warnings
 cargo fmt --all                                                      # Format
 cargo build --release                                                # Release binary
@@ -517,6 +532,8 @@ Requires Rust 1.82+ and Chrome/Chromium (for the browser tool).
 <summary><strong>Release Timeline</strong> — every version from first breath to now</summary>
 
 ```
+2026-03-22  v3.2.1  ●━━━ Discord integration + channel-agnostic startup — Discord channel wired into message pipeline (was implemented but never connected), per-message channel map routing (Telegram-only/Discord-only/both simultaneously), DISCORD_BOT_TOKEN env auto-inject, wildcard allowlist ("*"), Discord reply threading via MessageReference, /timelimit command for runtime hive task timeout, hive default bumped to 30min, Docker rebuilt with all features (TUI + Discord + health check + tini). 1825 tests
+                    │
 2026-03-21  v3.2.0  ●━━━ Tem Prowl — web-native browsing with OTK authentication. Cloned profile architecture (inherit user's Chrome sessions), /login command (100+ services), /browser lifecycle management, QR auto-detection, layered observation (32% token savings), credential isolation (zeroize + vault), headed/headless fallback. Live validated: Facebook post + Zalo message from Telegram. 1808 tests
                     │
 2026-03-18  v3.1.0  ●━━━ Eigen-Tune — self-tuning knowledge distillation engine (temm1e-distill), 7-stage pipeline with SPRT/CUSUM/Wilson statistical gates, zero-cost evaluation, proven on M2 with real LoRA fine-tune, 119 new tests, 1638 total. Research: real fine-tuning proof-of-concept on SmolLM2-135M
