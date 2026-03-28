@@ -335,19 +335,21 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore] // Requires display — skip in headless CI
     fn test_new_primary_monitor() {
-        // Should succeed on any system with at least one display
         let result = DesktopController::new(0);
         assert!(result.is_ok(), "Primary monitor should be available");
     }
 
     #[test]
+    #[ignore] // Requires display — skip in headless CI
     fn test_new_invalid_monitor() {
         let result = DesktopController::new(99);
         assert!(result.is_err(), "Monitor 99 should not exist");
     }
 
     #[test]
+    #[ignore] // Requires display — skip in headless CI
     fn test_capture_screenshot() {
         let ctrl = DesktopController::new(0).expect("Primary monitor");
         let screenshot = ctrl.capture().expect("Capture should succeed");
@@ -362,6 +364,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires display — skip in headless CI
     fn test_crop_region() {
         let ctrl = DesktopController::new(0).expect("Primary monitor");
         let screenshot = ctrl.capture().expect("Capture");
@@ -376,6 +379,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires display — skip in headless CI
     fn test_crop_invalid_region() {
         let ctrl = DesktopController::new(0).expect("Primary monitor");
         let screenshot = ctrl.capture().expect("Capture");
@@ -384,6 +388,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires display — skip in headless CI
     fn test_dimensions() {
         let ctrl = DesktopController::new(0).expect("Primary monitor");
         let (w, h) = ctrl.dimensions().expect("Dimensions");
@@ -391,6 +396,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // Requires display — skip in headless CI
     fn test_scale_factor() {
         let ctrl = DesktopController::new(0).expect("Primary monitor");
         let s = ctrl.scale_factor().expect("Scale factor");
