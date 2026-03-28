@@ -2,7 +2,7 @@
 
 > **Authors:** Quan Duong, Tem (TEMM1E Labs)
 > **Date:** March 2026
-> **Status:** Phase 1 (Prowl V2) Implemented. Phase 2 (Desktop) Designed.
+> **Status:** Both phases implemented, tested, and shipped (v3.4.0).
 > **Predecessor:** Tem Prowl (Duong & Tem, 2026) — browser-only, DOM-primary
 
 ---
@@ -21,7 +21,7 @@ We make five contributions:
 
 4. A rigorous **rejection analysis** of multi-model routing, demonstrating that the $0.014/task savings does not justify the engineering cost, and that 4 of 7 provider configurations (OpenRouter, proxy, Ollama, corporate) cannot support tier routing at all.
 
-5. A **working Phase 1 implementation** (Prowl V2) comprising 596 lines of Rust, 23 new tests, and zero new dependencies — adding `zoom_region`, SoM overlays on Tier 3 observations, and blueprint bypass to TEMM1E's existing browser tool.
+5. A **complete working implementation** across two phases: Phase 1 (Prowl V2, browser) adds `zoom_region`, SoM overlays, and blueprint bypass with 596 lines and 23 tests. Phase 2 (Tem Gaze, desktop) adds full computer use — screen capture via `xcap`, input simulation via `enigo`, SoM overlay compositing with embedded bitmap font — as a new `temm1e-gaze` crate with 22 tests. Proven live on macOS with Gemini Flash: the agent opened Spotlight, launched TextEdit, and typed a message autonomously.
 
 ---
 
@@ -526,6 +526,54 @@ Phase 1 enhances TEMM1E's existing browser tool with vision grounding techniques
 
 **New tests added:** 23 (20 for grounding math, 3 for blueprint bypass). **Total lines:** 596. **New dependencies:** 0.
 
+### 8.4 Phase 2: Desktop Computer Use (Tem Gaze)
+
+Phase 2 adds full desktop control as a new `temm1e-gaze` crate.
+
+**Table 9. Phase 2 Components**
+
+| Component | File | Description |
+|-----------|------|-------------|
+| DesktopController | `temm1e-gaze/src/desktop_controller.rs` | Screen capture (xcap) + input simulation (enigo) |
+| SoM overlay compositing | `temm1e-gaze/src/overlay.rs` | Draw numbered labels on screenshots with embedded 5x7 bitmap font |
+| Key combo parser | `temm1e-gaze/src/platform/mod.rs` | Parse "cmd+c", "ctrl+shift+a" → enigo Key sequences |
+| DesktopTool | `temm1e-tools/src/desktop_tool.rs` | Tool trait impl: screenshot, click, type, key, scroll, drag, zoom_region |
+
+**Platform support:** macOS (ARM + Intel, requires Accessibility permission) and Linux (X11 + Wayland, requires PipeWire for screen capture).
+
+**Graceful degradation:** On macOS without Accessibility permission, the controller initializes successfully with `input_available = false`. Screen capture works. Input methods return clear error messages guiding the user to System Settings. All other TEMM1E tools continue functioning.
+
+### 8.5 Live Validation
+
+Both phases were tested live on macOS with `gemini-3-flash-preview`:
+
+**Table 10. Live Test Results ($0.069 total cost)**
+
+| Test | Type | Result |
+|------|------|--------|
+| SoM overlay on 14-element form | Browser | PASS |
+| SoM overlay on 650-element GitHub page | Browser | PASS |
+| zoom_region 2x capture (27 KB) | Browser | PASS |
+| Multi-step: observe → zoom → click → self-correct | Browser | PASS |
+| Desktop screenshot (identify open apps) | Desktop | PASS |
+| Desktop click (opened Finder from Dock) | Desktop | PASS |
+| Full computer use: Spotlight → TextEdit → typed message | Desktop | PASS |
+
+**Key finding:** In the browser multi-step test, the first click missed by ~94 pixels. The agent detected the miss (page didn't change), self-corrected via DOM `getBoundingClientRect`, zoomed to verify, and clicked successfully on attempt 2. This directly validates the zoom-refine architecture: raw coordinate prediction is unreliable, but vision + verification + correction produces reliable outcomes.
+
+### 8.6 Compilation Gates (Final)
+
+| Gate | Result |
+|------|--------|
+| `cargo check --workspace` | PASS |
+| `cargo clippy --workspace --all-targets --all-features` | PASS (0 warnings) |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo test --workspace --all-features` | PASS (1,028 tests) |
+| CI (check + test + musl build + glibc desktop build + Docker + audit) | PASS |
+| CI/CD (release workflow) | PASS |
+
+**Total new code:** ~3,200 lines across 2 phases. **New tests:** 45. **New crate:** `temm1e-gaze`. **Total crates:** 19.
+
 ---
 
 ## 9. Limitations and Future Work
@@ -534,16 +582,17 @@ Phase 1 enhances TEMM1E's existing browser tool with vision grounding techniques
 
 1. **No formal convergence proof for zoom-refine.** We rely on empirical evidence. Error propagation from bad initial predictions remains a failure mode.
 2. **SoM for desktop requires VLM-native detection.** Without DOM, element detection depends on the VLM's own ability to identify interactive elements — which varies by model.
-3. **Phase 1 is browser-only.** Desktop control (Phase 2) is designed but not yet implemented.
-4. **No live benchmarks.** Phase 1 validation is compilation gates and unit tests. Live accuracy benchmarks on real pages require browser integration testing.
+3. **Linux pre-built binary requires Ubuntu 24.04+** for desktop control (glibc 2.39 + PipeWire 0.3.65+). Older systems use the server binary or build from source.
+4. **macOS requires Accessibility permission** for input simulation (click, type, drag). Screen capture works without it.
 5. **Verify-retry adds latency.** Each verification is +1 VLM call (~1-3 seconds). For latency-sensitive tasks, verification may be prohibitive.
+6. **No large-scale accuracy benchmarks.** Live validation covers 7 test cases. A formal accuracy study across 100+ desktop elements would strengthen the grounding claims.
 
 ### 9.2 Future Work
 
-1. **Phase 2 — Tem Gaze Desktop:** New `temm1e-gaze` crate with `ScreenController` trait, `enigo` + `xcap` integration for Ubuntu and macOS.
-2. **Eigen-Tune Integration:** Track grounding outcomes (strategy, success, cost) as statistical data. Auto-tune confidence thresholds over time via `temm1e-distill`.
-3. **Formal convergence analysis:** Derive bounds on zoom-refine accuracy as a function of initial prediction quality and shrink factor. The CEM connection from PIVOT may provide a starting point.
-4. **Live benchmarks:** Capture desktop screenshots, annotate ground-truth targets, measure accuracy across grounding strategies and VLM providers.
+1. **Eigen-Tune Integration:** Track grounding outcomes (strategy, success, cost) as statistical data. Auto-tune confidence thresholds over time via `temm1e-distill`.
+2. **Formal convergence analysis:** Derive bounds on zoom-refine accuracy as a function of initial prediction quality and shrink factor. The CEM connection from PIVOT may provide a starting point.
+3. **Large-scale benchmarks:** Capture 100+ annotated desktop screenshots across Ubuntu and macOS. Measure accuracy of SoM, zoom-refine, and direct clicking across multiple VLMs.
+4. **Windows support:** `enigo` and `xcap` both support Windows. The `temm1e-gaze` crate architecture supports it — platform-specific code is `#[cfg]`-gated. Requires testing and CI targets.
 
 ---
 
@@ -557,7 +606,7 @@ Tem Gaze extends TEMM1E from browser-only control to full desktop control using 
 
 3. **Simplicity wins.** One model, no routing, no local detection models, no cross-provider orchestration. The user's configured model handles everything. The pipeline works identically on Anthropic, OpenAI, Gemini, OpenRouter, Ollama, and corporate proxies.
 
-Phase 1 (Prowl V2) is implemented: 596 lines, 23 tests, zero new dependencies. Phase 2 (desktop control) is designed and ready for implementation.
+Both phases are implemented and shipped as v3.4.0: ~3,200 lines of Rust, 45 new tests, 19 crates. Proven live: the agent opened Spotlight, launched TextEdit, and typed a message on a real macOS desktop via Gemini Flash — full autonomous computer use through a messaging interface.
 
 ```
 Tem Prowl  → Hunts the web (browser, DOM-primary)
