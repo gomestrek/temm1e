@@ -4642,6 +4642,7 @@ Just type a message to chat with the AI agent.",
 
             let mut agent_opt: Option<temm1e_agent::AgentRuntime> = None;
 
+            tracing::info!(has_credentials = credentials.is_some(), "CLI Chat: checking credentials for agent init");
             if let Some((pname, key, model)) = credentials {
                 if !is_placeholder_key(&key) {
                     let (all_keys, saved_base_url) = load_active_provider_keys()
@@ -4694,8 +4695,7 @@ Just type a message to chat with the AI agent.",
                     match provider_result {
                         Ok(provider) => {
                             let system_prompt = Some(build_system_prompt());
-                            agent_opt = Some(
-                                temm1e_agent::AgentRuntime::with_limits(
+                            let mut rt = temm1e_agent::AgentRuntime::with_limits(
                                     provider,
                                     memory.clone(),
                                     tools_template.clone(),
@@ -4711,8 +4711,21 @@ Just type a message to chat with the AI agent.",
                                 .with_parallel_phases(pp_opt)
                                 .with_hive_enabled(hive_enabled_early)
                                 .with_shared_mode(shared_mode.clone())
-                                .with_shared_memory_strategy(shared_memory_strategy.clone()),
-                            );
+                                .with_shared_memory_strategy(shared_memory_strategy.clone());
+                            // Tem Aware: enable consciousness for CLI chat
+                            tracing::info!(awareness_enabled = config.awareness.enabled, "Checking awareness config");
+                            if config.awareness.enabled {
+                                let aware_cfg = temm1e_agent::awareness::AwarenessConfig {
+                                    enabled: true,
+                                    confidence_threshold: config.awareness.confidence_threshold,
+                                    max_interventions_per_session: config.awareness.max_interventions_per_session,
+                                    observation_mode: config.awareness.observation_mode.clone(),
+                                };
+                                rt = rt.with_awareness(
+                                    temm1e_agent::awareness_engine::AwarenessEngine::new(aware_cfg)
+                                );
+                            }
+                            agent_opt = Some(rt);
                             println!("Connected to {} (model: {})", pname, model);
                             if max_spend > 0.0 {
                                 println!("Budget: ${:.2} per session", max_spend);
