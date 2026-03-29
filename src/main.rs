@@ -1918,7 +1918,11 @@ async fn main() -> Result<()> {
                             observation_mode: config.awareness.observation_mode.clone(),
                         };
                         runtime = runtime.with_awareness(
-                            temm1e_agent::awareness_engine::AwarenessEngine::new(aware_config),
+                            temm1e_agent::awareness_engine::AwarenessEngine::new(
+                                aware_config,
+                                provider.clone(),
+                                model.clone(),
+                            ),
                         );
                     }
                     let agent = Arc::new(runtime);
@@ -4698,6 +4702,7 @@ Just type a message to chat with the AI agent.",
                     match provider_result {
                         Ok(provider) => {
                             let system_prompt = Some(build_system_prompt());
+                            let awareness_provider = provider.clone();
                             let mut rt = temm1e_agent::AgentRuntime::with_limits(
                                 provider,
                                 memory.clone(),
@@ -4730,7 +4735,11 @@ Just type a message to chat with the AI agent.",
                                     observation_mode: config.awareness.observation_mode.clone(),
                                 };
                                 rt = rt.with_awareness(
-                                    temm1e_agent::awareness_engine::AwarenessEngine::new(aware_cfg),
+                                    temm1e_agent::awareness_engine::AwarenessEngine::new(
+                                        aware_cfg,
+                                        awareness_provider.clone(),
+                                        model.clone(),
+                                    ),
                                 );
                             }
                             agent_opt = Some(rt);

@@ -783,8 +783,8 @@ impl AgentRuntime {
                 });
             }
 
-            // ── Tem Aware: PRE-LLM consciousness observation ────────────
-            // Called on EVERY turn before tokens are spent.
+            // ── Tem Aware: PRE-LLM consciousness (LLM-powered) ──────────
+            // A separate LLM call that THINKS about the upcoming turn.
             if let Some(ref awareness) = self.awareness {
                 let pre_obs = crate::awareness_engine::PreObservation {
                     user_message: user_text.clone(),
@@ -795,10 +795,10 @@ impl AgentRuntime {
                     cumulative_cost_usd: self.budget.total_spend_usd(),
                     budget_limit_usd: self.budget.max_spend_usd(),
                 };
-                if let Some(injection) = awareness.pre_observe(&pre_obs) {
+                if let Some(injection) = awareness.pre_observe(&pre_obs).await {
                     let consciousness_block = format!(
                         "{{{{consciousness}}}}\n\
-                         [Your awareness layer observes this conversation. Consider this context:]\n\
+                         [Your awareness layer — a separate observer watching this conversation — shares this insight:]\n\
                          {}\n\
                          {{{{/consciousness}}}}",
                         injection
@@ -1312,9 +1312,8 @@ impl AgentRuntime {
                     }
                 }
 
-                // ── Tem Aware: POST-LLM consciousness observation ──────
-                // Called on EVERY turn after response is ready.
-                // Records what happened, prepares notes for next turn.
+                // ── Tem Aware: POST-LLM consciousness (LLM-powered) ────
+                // A separate LLM call that EVALUATES what just happened.
                 if let Some(ref awareness) = self.awareness {
                     let obs = crate::awareness::TurnObservation {
                         turn_number: turn_api_calls,
@@ -1336,7 +1335,7 @@ impl AgentRuntime {
                         circuit_breaker_state: "active".to_string(),
                         previous_notes: awareness.session_notes(),
                     };
-                    awareness.post_observe(&obs);
+                    awareness.post_observe(&obs).await;
                 }
 
                 // ── Status: Done ─────────────────────────────────
