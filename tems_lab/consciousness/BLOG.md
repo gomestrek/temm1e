@@ -245,7 +245,7 @@ Following TEMM1E's naming convention:
 
 The consciousness layer:
 
-**Tem Aware.**
+**Tem Conscious.**
 
 Awareness. The capacity to observe one's own mind. Not intelligence — the mind is already intelligent. Not memory — λ-Memory already remembers. Awareness is the missing piece: the watcher that sees the whole picture and knows when to act.
 
@@ -253,7 +253,7 @@ Awareness. The capacity to observe one's own mind. Not intelligence — the mind
 Tem Prowl   → Hunts the web
 Tem Gaze    → Sees the machine
 Tem Hive    → Swarms together
-Tem Aware   → Watches its own mind
+Tem Conscious   → Watches its own mind
 Eigen-Tune  → Sharpens itself
 λ-Memory    → Remembers through decay
 ```

@@ -1,4 +1,4 @@
-# Tem Aware: Consciousness as a Separate Observer Sub-Agent for Agentic AI
+# Tem Conscious: Consciousness as a Separate Observer Sub-Agent for Agentic AI
 
 > **Authors:** Quan Duong, Tem (TEMM1E Labs)
 > **Date:** March 2026
@@ -9,9 +9,9 @@
 
 ## Abstract
 
-We propose Tem Aware, a metacognitive observer layer for TEMM1E — a consciousness sub-agent that watches the main agent's full internal state and selectively injects context to improve outcomes. Unlike self-correction approaches (Reflexion, Self-Refine) where the same model reflects on its own output, Tem Aware is a **separate entity** with its own memory, its own reasoning, and real-time visibility into internal state that the main agent cannot see from its own context window: classification confidence, budget consumption trajectory, tool retry patterns, cross-session behavioral trends, and context composition ratios.
+We propose Tem Conscious, a metacognitive observer layer for TEMM1E — a consciousness sub-agent that watches the main agent's full internal state and selectively injects context to improve outcomes. Unlike self-correction approaches (Reflexion, Self-Refine) where the same model reflects on its own output, Tem Conscious is a **separate entity** with its own memory, its own reasoning, and real-time visibility into internal state that the main agent cannot see from its own context window: classification confidence, budget consumption trajectory, tool retry patterns, cross-session behavioral trends, and context composition ratios.
 
-We ground our architecture in Global Workspace Theory (Baars, 1988) and address the critical finding from Huang et al. (ICLR 2024) that intrinsic self-correction without external feedback degrades performance. Our key argument: Tem Aware succeeds where self-correction fails because the observer provides **structurally external feedback** — information derived from system-level instrumentation, not from re-prompting the same model.
+We ground our architecture in Global Workspace Theory (Baars, 1988) and address the critical finding from Huang et al. (ICLR 2024) that intrinsic self-correction without external feedback degrades performance. Our key argument: Tem Conscious succeeds where self-correction fails because the observer provides **structurally external feedback** — information derived from system-level instrumentation, not from re-prompting the same model.
 
 We define a formal intervention framework with three levels (whisper, redirect, override), a cost model predicting net-negative token spend through waste prevention, and a 50-conversation A/B experiment protocol with 7 metrics and 4 success criteria. All claims are hypotheses. We will ship or kill based on data.
 
@@ -45,9 +45,9 @@ Self-Refine (Madaan et al., NeurIPS 2023) achieves ~20% improvement but uses the
 
 ### 1.3 Our Thesis
 
-Tem Aware provides **structurally external feedback** to the agent loop. The observer is a separate process with access to system-level instrumentation that the main agent cannot see from its context window:
+Tem Conscious provides **structurally external feedback** to the agent loop. The observer is a separate process with access to system-level instrumentation that the main agent cannot see from its context window:
 
-| Information | Visible to main agent? | Visible to Tem Aware? |
+| Information | Visible to main agent? | Visible to Tem Conscious? |
 |---|---|---|
 | Conversation history | Yes | Yes |
 | Tool call results | Yes | Yes |
@@ -67,12 +67,12 @@ This is not the same model "thinking again." This is a separate entity reporting
 
 Mapping to TEMM1E:
 - **Specialized modules** = classifier, context assembler, tool executor, budget tracker, memory system
-- **Global workspace** = Tem Aware, with read access to all modules
+- **Global workspace** = Tem Conscious, with read access to all modules
 - **Broadcast** = selective context injection back into the agent loop
 
-Tem Aware is the global workspace. It doesn't do the thinking — the agent loop does. It selects the most salient cross-module information and makes it available where it's needed.
+Tem Conscious is the global workspace. It doesn't do the thinking — the agent loop does. It selects the most salient cross-module information and makes it available where it's needed.
 
-**Higher-Order Thought Theory:** A mental state is conscious when there is a higher-order representation of it. Tem Aware IS the higher-order process — it represents (observes) the agent's first-order cognitive states.
+**Higher-Order Thought Theory:** A mental state is conscious when there is a higher-order representation of it. Tem Conscious IS the higher-order process — it represents (observes) the agent's first-order cognitive states.
 
 ---
 
@@ -88,7 +88,7 @@ Tem Aware is the global workspace. It doesn't do the thinking — the agent loop
 | CRITIC (Gou, 2024) | LLM + external tools verify | External (tools) | Post-generation | +7.7 F1 on QA |
 | ExpeL (Zhao, 2024) | Extract insights from trial-and-error | Self + memory | Cross-episode | Learns from experience |
 | Galaxy (Bao, 2025) | KoRa agent + Kernel meta-agent | Separate (Kernel) | Cross-task | Self-evolution |
-| **Tem Aware (ours)** | **Separate sub-agent + system instrumentation** | **External (separate process)** | **Real-time, proactive** | **Hypothesis: +5% completion, net-negative cost** |
+| **Tem Conscious (ours)** | **Separate sub-agent + system instrumentation** | **External (separate process)** | **Real-time, proactive** | **Hypothesis: +5% completion, net-negative cost** |
 
 ### 2.2 The Critical Gap
 
@@ -148,7 +148,7 @@ Three requirements:
 
 ### 3.3 Observation Protocol
 
-At the completion of each agent turn (after response delivery, before the next user message), Tem Aware receives a `TurnObservation`:
+At the completion of each agent turn (after response delivery, before the next user message), Tem Conscious receives a `TurnObservation`:
 
 ```rust
 struct TurnObservation {

@@ -323,6 +323,36 @@ Desktop control is included by default in `cargo install` and Docker builds. mac
 
 [Research paper →](tems_lab/gaze/RESEARCH_PAPER.md) · [Design doc →](tems_lab/gaze/DESIGN.md) · [Experiment report →](tems_lab/gaze/EXPERIMENT_REPORT.md) · [Full lab →](tems_lab/gaze/)
 
+### Tem Conscious — LLM-Powered Consciousness Layer
+
+A separate **thinking observer** that watches every agent turn with its own LLM calls. Before each turn, consciousness thinks about the conversation trajectory and injects insights into the agent's context. After each turn, it evaluates what happened and carries observations forward.
+
+**This is not a logger or a rule engine.** It's a separate mind — making its own Gemini/Claude/GPT calls — watching another mind work.
+
+**How it works:**
+```
+User message → CONSCIOUSNESS THINKS (pre-LLM call) → Agent responds → CONSCIOUSNESS EVALUATES (post-LLM call) → next turn
+```
+
+- **Pre-LLM:** "What should the agent be aware of before responding?" → injects `{{consciousness}}` block
+- **Post-LLM:** "Was this turn productive? Any patterns to note?" → carries insight to next turn
+- **ON by default** — disable with `[consciousness] enabled = false` in config
+
+**A/B tested across 6 experiments (340 test cases):**
+
+| Test | Unconscious | Conscious | Winner |
+|------|------------|-----------|--------|
+| TaskForge (40 tests, easy) | 40/40, $0.01 | 40/40, $0.01 | TIE |
+| URLForge (89 tests, mid) | 84/89 first try | **89/89 first try** | **CONSCIOUS** |
+| DataFlow (111 tests, hard) | 111/111, $0.01 | 111/111, $0.01 | TIE |
+| OrderFlow bugfix (119 tests) | 119/119, $0.05 | 119/119, $0.13 | UNCONSCIOUS |
+| MiniLang interpreter (17 tests) | 17/17, $0.046 | 17/17, **$0.009** | **CONSCIOUS** |
+| Multi-tool research (5 sections) | 5/5, $0.025 | 5/5, **$0.006** | **CONSCIOUS** |
+
+**Score: Conscious 3, Unconscious 1, Tie 2.**
+
+[Research paper →](tems_lab/consciousness/RESEARCH_PAPER.md) · [Experiment report →](tems_lab/consciousness/EXPERIMENT_REPORT.md) · [Blog →](tems_lab/consciousness/BLOG.md) · [Full lab →](tems_lab/consciousness/)
+
 ---
 
 ## Interactive TUI

@@ -1,4 +1,4 @@
-# Tem Aware: Implementation Plan
+# Tem Conscious: Implementation Plan
 
 **Date:** 2026-03-29
 **Research:** [RESEARCH_PAPER.md](RESEARCH_PAPER.md)
@@ -8,7 +8,7 @@
 
 ## Overview
 
-Tem Aware is implemented as an additive observer that hooks into the existing agent runtime via the status channel + a new observation struct. No existing runtime logic is modified — consciousness is a new module that reads state and optionally writes context.
+Tem Conscious is implemented as an additive observer that hooks into the existing agent runtime via the status channel + a new observation struct. No existing runtime logic is modified — consciousness is a new module that reads state and optionally writes context.
 
 ---
 
@@ -16,17 +16,17 @@ Tem Aware is implemented as an additive observer that hooks into the existing ag
 
 ### 1.1 TurnObservation Struct
 
-**New file:** `crates/temm1e-agent/src/awareness.rs`
+**New file:** `crates/temm1e-agent/src/consciousness.rs`
 
 Define the `TurnObservation` struct as specified in the research paper Section 3.3. This is a pure data struct — no logic, just fields collected from existing runtime state.
 
 Also define:
 - `ConsciousnessIntervention` enum: `NoAction`, `Whisper(String)`, `Redirect { memory_query: String }`, `Override { block_tool: String, reason: String }`
-- `AwarenessConfig` — enabled flag, confidence threshold, max interventions per conversation, observation model override
+- `ConsciousnessConfig` — enabled flag, confidence threshold, max interventions per conversation, observation model override
 
 ### 1.2 Observation Collector
 
-**New function in** `crates/temm1e-agent/src/awareness.rs`:
+**New function in** `crates/temm1e-agent/src/consciousness.rs`:
 
 `collect_observation(runtime_state, turn_number, session_id) -> TurnObservation`
 
@@ -43,20 +43,20 @@ All of this data already exists in the runtime. The collector just reads it into
 
 ### 1.3 Awareness Engine
 
-**New file:** `crates/temm1e-agent/src/awareness_engine.rs`
+**New file:** `crates/temm1e-agent/src/consciousness_engine.rs`
 
 The core logic:
 
 ```rust
-pub struct AwarenessEngine {
-    config: AwarenessConfig,
+pub struct ConsciousnessEngine {
+    config: ConsciousnessConfig,
     memory: Arc<dyn Memory>,        // Consciousness's own λ-Memory
     provider: Arc<dyn Provider>,    // LLM for consciousness reasoning
     session_notes: Vec<String>,     // Notes from this session
     intervention_count: u32,        // Count this session
 }
 
-impl AwarenessEngine {
+impl ConsciousnessEngine {
     pub async fn observe(
         &mut self,
         observation: &TurnObservation,
@@ -96,15 +96,15 @@ This two-tier system means most turns are evaluated by rules only ($0 cost). Onl
 
 **Modified:** `crates/temm1e-agent/src/runtime.rs`
 
-After `process_message()` completes and before returning the response, call the awareness engine:
+After `process_message()` completes and before returning the response, call the consciousness engine:
 
 ```rust
 // At the end of process_message(), after response is ready:
-if let Some(awareness) = &mut self.awareness {
-    let observation = awareness::collect_observation(
+if let Some(consciousness) = &mut self.consciousness {
+    let observation = consciousness::collect_observation(
         &self, turn_number, &session_id
     );
-    let intervention = awareness.observe(&observation).await;
+    let intervention = consciousness.observe(&observation).await;
 
     match intervention {
         ConsciousnessIntervention::Whisper(note) => {
@@ -128,7 +128,7 @@ if let Some(awareness) = &mut self.awareness {
 
 ```
 {{consciousness}}
-[Note from your awareness layer — consider this context for your response]
+[Note from your consciousness layer — consider this context for your response]
 {note_content}
 {{/consciousness}}
 ```
@@ -139,12 +139,12 @@ This is ephemeral — the note is consumed and cleared after one use.
 
 ## Phase 2: Config and Wiring
 
-### 2.1 AwarenessConfig
+### 2.1 ConsciousnessConfig
 
 **Modified:** `crates/temm1e-core/src/types/config.rs`
 
 ```toml
-[awareness]
+[consciousness]
 enabled = false                    # Off by default
 confidence_threshold = 0.7        # Only inject on high confidence
 max_interventions_per_session = 10 # Prevent runaway injection
@@ -156,13 +156,13 @@ observation_mode = "rules_first"   # "rules_first", "always_llm", "rules_only"
 
 **Modified:** `crates/temm1e-agent/src/runtime.rs`
 
-Add optional `AwarenessEngine` field to `AgentRuntime`. Initialize from config during runtime construction. Feature-gated: `#[cfg(feature = "awareness")]` — but since it's purely additive and off-by-default, we can include it without a feature gate.
+Add optional `ConsciousnessEngine` field to `AgentRuntime`. Initialize from config during runtime construction. Feature-gated: `#[cfg(feature = "consciousness")]` — but since it's purely additive and off-by-default, we can include it without a feature gate.
 
 ### 2.3 Wire into main.rs
 
 **Modified:** `src/main.rs`
 
-When constructing the agent runtime, if `config.awareness.enabled`, create an `AwarenessEngine` with:
+When constructing the agent runtime, if `config.consciousness.enabled`, create an `ConsciousnessEngine` with:
 - Its own λ-Memory instance (separate SQLite table or separate DB file)
 - A provider instance (same as user's, or override model if configured)
 - Config parameters
@@ -182,7 +182,7 @@ When constructing the agent runtime, if `config.awareness.enabled`, create an `A
 | `test_no_action_default` | Normal turn produces NoAction |
 | `test_whisper_injection` | consciousness_note is prepended to next system prompt |
 | `test_whisper_ephemeral` | consciousness_note is cleared after one use |
-| `test_config_defaults` | AwarenessConfig defaults are sensible |
+| `test_config_defaults` | ConsciousnessConfig defaults are sensible |
 | `test_max_interventions` | Stops injecting after max_interventions_per_session |
 
 ### 3.2 Live A/B Test (Post-Implementation)
@@ -197,27 +197,27 @@ As specified in research paper Section 5. 50 conversations, 7 metrics, 4 success
 
 | File | Description |
 |------|-------------|
-| `crates/temm1e-agent/src/awareness.rs` | TurnObservation struct, collect_observation(), intervention types |
-| `crates/temm1e-agent/src/awareness_engine.rs` | AwarenessEngine, rule-based + LLM observation, intervention logic |
+| `crates/temm1e-agent/src/consciousness.rs` | TurnObservation struct, collect_observation(), intervention types |
+| `crates/temm1e-agent/src/consciousness_engine.rs` | ConsciousnessEngine, rule-based + LLM observation, intervention logic |
 
 ### Modified Files
 
 | File | Change |
 |------|--------|
-| `crates/temm1e-agent/src/runtime.rs` | Add optional AwarenessEngine, call observe() after process_message, inject consciousness notes |
-| `crates/temm1e-agent/src/lib.rs` | Add `pub mod awareness; pub mod awareness_engine;` |
-| `crates/temm1e-core/src/types/config.rs` | Add AwarenessConfig struct |
-| `src/main.rs` | Initialize AwarenessEngine when config.awareness.enabled |
+| `crates/temm1e-agent/src/runtime.rs` | Add optional ConsciousnessEngine, call observe() after process_message, inject consciousness notes |
+| `crates/temm1e-agent/src/lib.rs` | Add `pub mod consciousness; pub mod consciousness_engine;` |
+| `crates/temm1e-core/src/types/config.rs` | Add ConsciousnessConfig struct |
+| `src/main.rs` | Initialize ConsciousnessEngine when config.consciousness.enabled |
 
 ### No New Crates
 
-Unlike Tem Gaze (which needed a new crate for desktop-specific deps), Tem Aware lives entirely within `temm1e-agent`. It uses existing dependencies: `temm1e-core` (traits, types), the Provider trait (for LLM calls), and the Memory trait (for consciousness's own λ-Memory). No new external dependencies.
+Unlike Tem Gaze (which needed a new crate for desktop-specific deps), Tem Conscious lives entirely within `temm1e-agent`. It uses existing dependencies: `temm1e-core` (traits, types), the Provider trait (for LLM calls), and the Memory trait (for consciousness's own λ-Memory). No new external dependencies.
 
 ---
 
 ## Dependencies
 
-Zero new dependencies. Tem Aware uses:
+Zero new dependencies. Tem Conscious uses:
 - `temm1e-core::Provider` — for consciousness LLM calls
 - `temm1e-core::Memory` — for consciousness's own λ-Memory
 - `tokio` — for async
