@@ -363,6 +363,10 @@ User message → CONSCIOUSNESS THINKS (pre-LLM call) → Agent responds → CONS
 
 ### Perpetuum — Perpetual Time-Aware Entity
 
+<p align="center">
+  <img src="assets/tem-perpetuum-overview.png" alt="Perpetuum Architecture Overview" width="100%">
+</p>
+
 Tem is no longer a request-response agent. Perpetuum makes Tem a **persistent, time-aware entity** — always on, aware of time, capable of scheduling and monitoring, and proactively investing idle time in self-improvement.
 
 **Core architecture:**
