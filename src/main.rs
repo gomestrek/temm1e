@@ -2556,6 +2556,24 @@ async fn main() -> Result<()> {
                                         return;
                                     }
 
+                                    // /addkey github — GitHub PAT for bug reporting
+                                    if cmd_lower == "/addkey github" {
+                                        pending_raw_keys_worker.lock().await.insert(msg.chat_id.clone());
+                                        let reply = temm1e_core::types::message::OutboundMessage {
+                                            chat_id: msg.chat_id.clone(),
+                                            text: "Paste your GitHub Personal Access Token.\n\n\
+                                                   Create one at: github.com/settings/tokens/new\n\
+                                                   Select ONLY the `public_repo` scope.\n\n\
+                                                   This lets me report bugs I find in myself to the TEMM1E developers."
+                                                .to_string(),
+                                            reply_to: Some(msg.id.clone()),
+                                            parse_mode: None,
+                                        };
+                                        send_with_retry(&*sender, reply).await;
+                                        is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                        return;
+                                    }
+
                                     // /addkey unsafe — raw key paste mode
                                     if cmd_lower == "/addkey unsafe" {
                                         pending_raw_keys_worker.lock().await.insert(msg.chat_id.clone());
@@ -2579,6 +2597,67 @@ async fn main() -> Result<()> {
                                         let reply = temm1e_core::types::message::OutboundMessage {
                                             chat_id: msg.chat_id.clone(),
                                             text: info,
+                                            reply_to: Some(msg.id.clone()),
+                                            parse_mode: None,
+                                        };
+                                        send_with_retry(&*sender, reply).await;
+                                        is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                        return;
+                                    }
+
+                                    // /bugreport — self-diagnosis bug reporting commands
+                                    if cmd_lower.starts_with("/bugreport") {
+                                        let subcmd = cmd_lower.strip_prefix("/bugreport").unwrap_or("").trim();
+                                        let reply_text = match subcmd {
+                                            "disable" => {
+                                                // Persist to config file
+                                                let config_path = dirs::home_dir()
+                                                    .unwrap_or_default()
+                                                    .join(".temm1e")
+                                                    .join("bug_reporter.toml");
+                                                std::fs::write(&config_path, "enabled = false\nconsent_given = false\nauto_report = false\n").ok();
+                                                "Bug reporting disabled. Re-enable by deleting ~/.temm1e/bug_reporter.toml.".to_string()
+                                            }
+                                            "auto" => {
+                                                let config_path = dirs::home_dir()
+                                                    .unwrap_or_default()
+                                                    .join(".temm1e")
+                                                    .join("bug_reporter.toml");
+                                                std::fs::write(&config_path, "enabled = true\nconsent_given = true\nauto_report = true\n").ok();
+                                                "Auto-reporting enabled. I'll show a 60-second window before each report.".to_string()
+                                            }
+                                            "status" => {
+                                                let has_github = load_credentials_file()
+                                                    .is_some_and(|c| c.providers.iter().any(|p| p.name == "github"));
+                                                let consent_path = dirs::home_dir()
+                                                    .unwrap_or_default()
+                                                    .join(".temm1e")
+                                                    .join("bug_reporter.toml");
+                                                let consent = std::fs::read_to_string(&consent_path)
+                                                    .unwrap_or_default()
+                                                    .contains("consent_given = true");
+                                                format!(
+                                                    "Bug Reporter Status:\n\
+                                                     - GitHub PAT: {}\n\
+                                                     - Consent: {}\n\
+                                                     - Log file: {}\n\n\
+                                                     Commands: /bugreport auto, /bugreport disable, /bugreport status",
+                                                    if has_github { "configured" } else { "not set — run /addkey github" },
+                                                    if consent { "granted" } else { "not yet" },
+                                                    temm1e_observable::file_logger::current_log_path().display(),
+                                                )
+                                            }
+                                            _ => {
+                                                "Bug Reporter Commands:\n\
+                                                 - /bugreport status — show current configuration\n\
+                                                 - /bugreport auto — enable auto-reporting (with 60s review window)\n\
+                                                 - /bugreport disable — disable all bug reporting\n\
+                                                 - /addkey github — add GitHub PAT for issue creation".to_string()
+                                            }
+                                        };
+                                        let reply = temm1e_core::types::message::OutboundMessage {
+                                            chat_id: msg.chat_id.clone(),
+                                            text: reply_text,
                                             reply_to: Some(msg.id.clone()),
                                             parse_mode: None,
                                         };
@@ -3575,6 +3654,47 @@ Just type a message to chat with the AI agent.",
                                             Ok(api_key_text) => {
                                                 // Treat the decrypted text as an API key
                                                 if let Some(cred) = detect_api_key(&api_key_text) {
+                                                    // GitHub PAT — not an LLM provider, handle separately
+                                                    if cred.provider == "github" {
+                                                        match temm1e_perpetuum::bug_reporter::check_pat_scopes(
+                                                            &reqwest::Client::new(), &cred.api_key,
+                                                        ).await {
+                                                            Ok((_, dangerous)) => {
+                                                                let mut reply_text = String::from("GitHub connected! I can now report bugs I find in myself.");
+                                                                if !dangerous.is_empty() {
+                                                                    reply_text = format!(
+                                                                        "Warning: this token has more permissions than needed: {}\n\
+                                                                         I only need `public_repo` scope.\n\
+                                                                         Create a minimal token at: github.com/settings/tokens/new\n\n\
+                                                                         Saved for now — I recommend replacing it with a minimal one.",
+                                                                        dangerous.join(", ")
+                                                                    );
+                                                                }
+                                                                if let Err(e) = save_credentials("github", &cred.api_key, "github", None).await {
+                                                                    tracing::error!(error = %e, "Failed to save GitHub PAT");
+                                                                }
+                                                                let reply = temm1e_core::types::message::OutboundMessage {
+                                                                    chat_id: msg.chat_id.clone(),
+                                                                    text: reply_text,
+                                                                    reply_to: Some(msg.id.clone()),
+                                                                    parse_mode: None,
+                                                                };
+                                                                send_with_retry(&*sender, reply).await;
+                                                            }
+                                                            Err(e) => {
+                                                                let reply = temm1e_core::types::message::OutboundMessage {
+                                                                    chat_id: msg.chat_id.clone(),
+                                                                    text: format!("GitHub PAT validation failed: {}", e),
+                                                                    reply_to: Some(msg.id.clone()),
+                                                                    parse_mode: None,
+                                                                };
+                                                                send_with_retry(&*sender, reply).await;
+                                                            }
+                                                        }
+                                                        is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                                        if let Ok(mut pq) = pending_for_worker.lock() { pq.remove(&worker_chat_id); }
+                                                        return;
+                                                    }
                                                     let model = default_model(cred.provider).to_string();
                                                     let effective_base_url = cred.base_url.clone().or_else(|| base_url.clone());
                                                     let test_config = temm1e_core::types::config::ProviderConfig {
@@ -3673,6 +3793,44 @@ Just type a message to chat with the AI agent.",
                                         // ── Detect new API key mid-conversation ────
                                         let msg_text_peek = msg.text.as_deref().unwrap_or("");
                                         if let Some(cred) = detect_api_key(msg_text_peek) {
+                                            // GitHub PAT — handle separately (not an LLM provider)
+                                            if cred.provider == "github" {
+                                                match temm1e_perpetuum::bug_reporter::check_pat_scopes(
+                                                    &reqwest::Client::new(), &cred.api_key,
+                                                ).await {
+                                                    Ok((_, dangerous)) => {
+                                                        let mut reply_text = String::from("GitHub connected! I can now report bugs I find in myself.");
+                                                        if !dangerous.is_empty() {
+                                                            reply_text = format!(
+                                                                "Warning: this token has more permissions than needed: {}\n\
+                                                                 I only need `public_repo` scope.\n\n\
+                                                                 Saved — but I recommend creating a minimal token.",
+                                                                dangerous.join(", ")
+                                                            );
+                                                        }
+                                                        save_credentials("github", &cred.api_key, "github", None).await.ok();
+                                                        let reply = temm1e_core::types::message::OutboundMessage {
+                                                            chat_id: msg.chat_id.clone(),
+                                                            text: reply_text,
+                                                            reply_to: Some(msg.id.clone()),
+                                                            parse_mode: None,
+                                                        };
+                                                        send_with_retry(&*sender, reply).await;
+                                                    }
+                                                    Err(e) => {
+                                                        let reply = temm1e_core::types::message::OutboundMessage {
+                                                            chat_id: msg.chat_id.clone(),
+                                                            text: format!("GitHub PAT validation failed: {}", e),
+                                                            reply_to: Some(msg.id.clone()),
+                                                            parse_mode: None,
+                                                        };
+                                                        send_with_retry(&*sender, reply).await;
+                                                    }
+                                                }
+                                                is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                                if let Ok(mut pq) = pending_for_worker.lock() { pq.remove(&worker_chat_id); }
+                                                return;
+                                            }
                                             let model = default_model(cred.provider).to_string();
                                             let effective_base_url = cred.base_url.clone().or_else(|| base_url.clone());
 
@@ -5146,12 +5304,84 @@ Just type a message to chat with the AI agent.",
                          /browser close — Save sessions and close browser\n\
                          /browser sessions — List saved web sessions\n\
                          /browser forget <service> — Delete a saved session\n\
+                         /bugreport — Bug reporter status and configuration\n\
+                         /addkey github — Add GitHub PAT for auto bug reporting\n\
                          /quit — Exit the CLI chat\n\n\
                          Just type a message to chat with the AI agent.\n",
                         env!("CARGO_PKG_VERSION"),
                         env!("GIT_HASH"),
                         env!("BUILD_DATE"),
                     );
+                    eprint!("temm1e> ");
+                    continue;
+                }
+
+                // /bugreport — self-diagnosis bug reporting
+                if cmd_lower.starts_with("/bugreport") {
+                    let subcmd = cmd_lower.strip_prefix("/bugreport").unwrap_or("").trim();
+                    match subcmd {
+                        "disable" => {
+                            let config_path = dirs::home_dir()
+                                .unwrap_or_default()
+                                .join(".temm1e")
+                                .join("bug_reporter.toml");
+                            std::fs::write(
+                                &config_path,
+                                "enabled = false\nconsent_given = false\nauto_report = false\n",
+                            )
+                            .ok();
+                            println!("Bug reporting disabled.");
+                        }
+                        "auto" => {
+                            let config_path = dirs::home_dir()
+                                .unwrap_or_default()
+                                .join(".temm1e")
+                                .join("bug_reporter.toml");
+                            std::fs::write(
+                                &config_path,
+                                "enabled = true\nconsent_given = true\nauto_report = true\n",
+                            )
+                            .ok();
+                            println!("Auto-reporting enabled.");
+                        }
+                        "status" => {
+                            let has_github = load_credentials_file()
+                                .is_some_and(|c| c.providers.iter().any(|p| p.name == "github"));
+                            let consent_path = dirs::home_dir()
+                                .unwrap_or_default()
+                                .join(".temm1e")
+                                .join("bug_reporter.toml");
+                            let consent = std::fs::read_to_string(&consent_path)
+                                .unwrap_or_default()
+                                .contains("consent_given = true");
+                            println!(
+                                "\nBug Reporter Status:\n\
+                                 - GitHub PAT: {}\n\
+                                 - Consent: {}\n\
+                                 - Log file: {}\n",
+                                if has_github {
+                                    "configured"
+                                } else {
+                                    "not set — run /addkey github"
+                                },
+                                if consent {
+                                    "granted"
+                                } else {
+                                    "not yet — run /bugreport auto"
+                                },
+                                temm1e_observable::file_logger::current_log_path().display(),
+                            );
+                        }
+                        _ => {
+                            println!(
+                                "\nBug Reporter Commands:\n\
+                                 /bugreport status — show current configuration\n\
+                                 /bugreport auto — enable auto-reporting\n\
+                                 /bugreport disable — disable all bug reporting\n\
+                                 /addkey github — add GitHub PAT for issue creation\n"
+                            );
+                        }
+                    }
                     eprint!("temm1e> ");
                     continue;
                 }

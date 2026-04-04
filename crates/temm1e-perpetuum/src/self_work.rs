@@ -118,6 +118,24 @@ async fn introspect_logs(
     Ok(format!("Introspection: {insights}"))
 }
 
+/// Load the GitHub PAT from credentials.toml (if configured).
+fn load_github_token() -> Option<String> {
+    let creds = temm1e_core::config::credentials::load_credentials_file()?;
+    let github = creds.providers.iter().find(|p| p.name == "github")?;
+    github.keys.first().cloned()
+}
+
+/// Check if bug reporting consent has been given.
+fn is_consent_given() -> bool {
+    let path = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".temm1e")
+        .join("bug_reporter.toml");
+    std::fs::read_to_string(&path)
+        .unwrap_or_default()
+        .contains("consent_given = true")
+}
+
 /// Bug review: scan logs for recurring errors, triage via LLM, report to GitHub.
 async fn review_bugs(
     store: &Arc<Store>,
@@ -146,9 +164,18 @@ async fn review_bugs(
         return Ok("BugReview: no recurring errors found".to_string());
     }
 
+    // Load GitHub token (if not configured, triage only — no reporting)
+    let github_token = load_github_token();
+    let can_report = github_token.is_some() && is_consent_given();
+
     // Triage each error group via LLM
     let system = "You are reviewing error logs from TEMM1E, an AI agent runtime.";
     let mut bugs_found = 0;
+    let mut reported = 0;
+    let client = reqwest::Client::new();
+    let version = env!("CARGO_PKG_VERSION");
+    let os_info = format!("{} {}", std::env::consts::OS, std::env::consts::ARCH);
+
     for error in &errors {
         let prompt = bug_reporter::build_triage_prompt(error);
         match caller.call(Some(system), &prompt).await {
@@ -162,6 +189,67 @@ async fn review_bugs(
                         count = error.count,
                         "BugReview: found reportable bug"
                     );
+
+                    // Try to report to GitHub if configured
+                    if can_report {
+                        if let Some(ref token) = github_token {
+                            // Dedup — skip if already reported
+                            match bug_reporter::is_duplicate(&client, token, &error.signature).await
+                            {
+                                Ok(true) => {
+                                    tracing::debug!(
+                                        target: "perpetuum",
+                                        signature = %error.signature,
+                                        "BugReview: already reported, skipping"
+                                    );
+                                }
+                                Ok(false) => {
+                                    // Scrub and create issue
+                                    let body = bug_reporter::format_issue_body(
+                                        error, &response, version, &os_info,
+                                    );
+                                    let scrubbed = temm1e_tools::credential_scrub::scrub_for_report(
+                                        &body,
+                                        &[],
+                                    );
+                                    let scrubbed =
+                                        temm1e_tools::credential_scrub::entropy_scrub(&scrubbed);
+
+                                    let title = format!(
+                                        "[BUG] {}",
+                                        &error.message[..error.message.len().min(70)]
+                                    );
+
+                                    match bug_reporter::create_issue(
+                                        &client, token, &title, &scrubbed,
+                                    )
+                                    .await
+                                    {
+                                        Ok(url) => {
+                                            reported += 1;
+                                            tracing::info!(
+                                                target: "perpetuum",
+                                                url = %url,
+                                                "BugReview: issue created"
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                error = %e,
+                                                "BugReview: GitHub issue creation failed"
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        error = %e,
+                                        "BugReview: dedup check failed"
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
             }
             Err(e) => {
@@ -174,6 +262,7 @@ async fn review_bugs(
         target: "perpetuum",
         total_errors = errors.len(),
         bugs = bugs_found,
+        reported,
         "BugReview complete"
     );
 
@@ -186,9 +275,10 @@ async fn review_bugs(
         .await?;
 
     Ok(format!(
-        "BugReview: scanned {} error groups, {} classified as bugs",
+        "BugReview: scanned {} error groups, {} bugs found, {} reported to GitHub",
         errors.len(),
-        bugs_found
+        bugs_found,
+        reported
     ))
 }
 
