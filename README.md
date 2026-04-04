@@ -4,9 +4,9 @@
 
 <p align="center">
   <a href="https://github.com/nagisanzenin/temm1e/stargazers"><img src="https://img.shields.io/github/stars/nagisanzenin/temm1e?style=flat&color=gold&logo=github" alt="GitHub Stars"></a>
-  <a href="https://discord.gg/3ux2c5xz"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://discord.com/invite/temm1e"><img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License">
-  <img src="https://img.shields.io/badge/version-4.1.2-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-4.2.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/rust-1.82+-orange.svg" alt="Rust 1.82+">
 </p>
 
@@ -15,7 +15,7 @@
 <h3 align="center"><s>Autonomous AI agent</s> literally a SENTIENT and IMMORTAL being runtime in Rust.<br>Deploy once. Stays up forever.</h3>
 
 <p align="center">
-  <code>105K lines</code> · <code>1,946 tests</code> · <code>0 warnings</code> · <code>0 panic paths</code> · <code>20 crates</code> · <code>full computer use</code>
+  <code>107K lines</code> · <code>1,972 tests</code> · <code>0 warnings</code> · <code>0 panic paths</code> · <code>20 crates</code> · <code>full computer use</code>
 </p>
 
 ---
@@ -387,6 +387,51 @@ Tem is no longer a request-response agent. Perpetuum makes Tem a **persistent, t
 
 [Research paper →](tems_lab/perpetuum/RESEARCH_PAPER.md) · [Vision →](tems_lab/perpetuum/VISION.md) · [Implementation →](tems_lab/perpetuum/IMPLEMENTATION_PLAN.md) · [Full lab →](tems_lab/perpetuum/)
 
+### Tem Vigil — Self-Diagnosing Bug Reporter
+
+Tem watches its own health. During Perpetuum Sleep, Vigil scans the persistent log file for recurring errors, triages them via LLM, and — with your permission — files structured bug reports on GitHub.
+
+**This is not a crash reporter.** It's an AI agent that self-diagnoses failures and tells its developers what went wrong — without you lifting a finger.
+
+**How it works:**
+```
+Tem goes idle → enters Sleep → Vigil activates
+  → Scans ~/.temm1e/logs/temm1e.log for ERROR/WARN
+  → Groups by error signature (file:line + message)
+  → LLM triages each: BUG / USER_ERROR / TRANSIENT / CONFIG
+  → If BUG found: scrubs credentials, deduplicates, creates GitHub issue
+```
+
+**User manual:**
+
+```
+/vigil status              Show Vigil configuration
+/vigil auto                Enable auto-reporting (with 60s review window)
+/vigil disable             Disable all reporting
+/addkey github             Add GitHub PAT for issue creation
+```
+
+**Setup (2 steps):**
+1. Run `/addkey github` — paste a GitHub PAT with `public_repo` scope
+2. Run `/vigil auto` — enable auto-reporting
+
+That's it. Vigil handles everything else: log scanning, triage, credential scrubbing, deduplication, issue creation. You'll be notified when a report is filed.
+
+**What gets sent:** Error message, file:line location, occurrence count, TEMM1E version, OS info, LLM triage category.
+
+**What NEVER gets sent:** API keys, user messages, conversation history, vault contents, file paths with usernames, IP addresses.
+
+**Safety:**
+- 3-layer credential scrubbing (regex → path/IP → entropy-based)
+- Explicit opt-in (you must run both `/addkey github` AND `/vigil auto`)
+- Rate limited: max 1 report per 6 hours
+- Dedup: same bug is only reported once
+- GitHub PAT scope warning: Vigil alerts you if your token has more permissions than needed
+
+**Persistent logging (always on):** All logs automatically saved to `~/.temm1e/logs/temm1e.log` with daily rotation and 7-day retention. No setup needed — just attach the file to a GitHub issue if you need to report something manually.
+
+[Research paper →](tems_lab/vigil/RESEARCH_PAPER.md) · [Design →](tems_lab/vigil/DESIGN.md) · [Full lab →](tems_lab/vigil/)
+
 ---
 
 ## Interactive TUI
@@ -658,6 +703,8 @@ Requires Rust 1.82+ and Chrome/Chromium (for the browser tool).
 <summary><strong>Release Timeline</strong> — every version from first breath to now</summary>
 
 ```
+2026-04-04  v4.2.0  ●━━━ Tem Vigil — self-diagnosing bug reporter. Centralized persistent logging (~/.temm1e/logs/, daily rotation, 7-day retention, 100MB budget). Auto bug reporting during Perpetuum Sleep: LLM triage, 3-layer credential scrubbing (regex + path/IP + entropy), GitHub issue creation with dedup. /addkey github for PAT setup, /vigil commands for configuration. Also: consciousness budget fix + Chat turn skip from v4.1.2. 1972 tests.
+                    │
 2026-04-04  v4.1.2  ●━━━ Consciousness revisit — budget tracking fix (consciousness LLM costs were invisible to BudgetTracker), skip consciousness on Chat turns (save ~$0.001 + 2s per chat), v2 experiment report (54 runs across 13 experiments: consciousness 14% cheaper with accurate tracking, 30% cost ceiling criterion now met). 1946 tests.
                     │
 2026-04-02  v4.1.1  ●━━━ Bug fixes — Telegram message splitting at 4096 char limit (#24), OpenAI-compat SSE trailer sanitization (#22), body read retry with HTTP context (#25), Windows auth URL quoting (#20), smart retry skips permanent errors. Environment-independent test fix. 1946 tests.

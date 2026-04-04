@@ -8,6 +8,9 @@ description = "Perpetuum: perpetual time-aware entity framework for TEMM1E"
 
 [dependencies]
 temm1e-core = { path = "../temm1e-core" }
+temm1e-observable = { path = "../temm1e-observable" }
+temm1e-tools = { path = "../temm1e-tools" }
+dirs.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "sync", "macros"] }
 tokio-util = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
@@ -23,6 +26,7 @@ scraper = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 sha2 = { workspace = true }
+urlencoding = { workspace = true }
 
 [dev-dependencies]
 temm1e-test-utils = { path = "../temm1e-test-utils" }

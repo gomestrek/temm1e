@@ -5,10 +5,12 @@
 //! concern scheduling (Cortex/Pulse), entity state machine (Conscience),
 //! LLM-cognitive scheduling (Cognitive), and proactive agency (Volition).
 
+pub mod bug_reporter;
 pub mod chronos;
 pub mod cognitive;
 pub mod conscience;
 pub mod cortex;
+pub mod log_scanner;
 pub mod monitor;
 pub mod parking;
 pub mod pulse;

@@ -1202,30 +1202,41 @@ async fn main() -> Result<()> {
     #[cfg(not(feature = "tui"))]
     let _is_tui = false;
 
+    // Clean up old log files (7-day retention, 100 MB budget)
+    temm1e_observable::file_logger::cleanup_logs(7);
+
+    // Set up tracing: stdout + persistent log file
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let file_appender = temm1e_observable::file_logger::create_file_appender();
+    let (file_writer, _log_guard) = tracing_appender::non_blocking(file_appender);
+
     if _is_tui {
-        // TUI mode: write logs to ~/.temm1e/tui.log so they don't corrupt the display
-        let log_dir = dirs::home_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join(".temm1e");
-        std::fs::create_dir_all(&log_dir).ok();
-        if let Ok(log_file) = std::fs::File::create(log_dir.join("tui.log")) {
-            tracing_subscriber::fmt()
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-                )
-                .with_writer(std::sync::Mutex::new(log_file))
-                .with_ansi(false)
-                .json()
-                .init();
-        }
-    } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        // TUI mode: file only (no stdout — would corrupt the display)
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_ansi(false)
+                    .with_writer(file_writer),
             )
-            .json()
+            .init();
+    } else {
+        // CLI/daemon mode: stdout + file
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(tracing_subscriber::fmt::layer().json())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_ansi(false)
+                    .with_writer(file_writer),
+            )
             .init();
     }
 
@@ -2545,6 +2556,24 @@ async fn main() -> Result<()> {
                                         return;
                                     }
 
+                                    // /addkey github — GitHub PAT for vigil
+                                    if cmd_lower == "/addkey github" {
+                                        pending_raw_keys_worker.lock().await.insert(msg.chat_id.clone());
+                                        let reply = temm1e_core::types::message::OutboundMessage {
+                                            chat_id: msg.chat_id.clone(),
+                                            text: "Paste your GitHub Personal Access Token.\n\n\
+                                                   Create one at: github.com/settings/tokens/new\n\
+                                                   Select ONLY the `public_repo` scope.\n\n\
+                                                   This lets me report bugs I find in myself to the TEMM1E developers."
+                                                .to_string(),
+                                            reply_to: Some(msg.id.clone()),
+                                            parse_mode: None,
+                                        };
+                                        send_with_retry(&*sender, reply).await;
+                                        is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                        return;
+                                    }
+
                                     // /addkey unsafe — raw key paste mode
                                     if cmd_lower == "/addkey unsafe" {
                                         pending_raw_keys_worker.lock().await.insert(msg.chat_id.clone());
@@ -2568,6 +2597,67 @@ async fn main() -> Result<()> {
                                         let reply = temm1e_core::types::message::OutboundMessage {
                                             chat_id: msg.chat_id.clone(),
                                             text: info,
+                                            reply_to: Some(msg.id.clone()),
+                                            parse_mode: None,
+                                        };
+                                        send_with_retry(&*sender, reply).await;
+                                        is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                        return;
+                                    }
+
+                                    // /vigil — self-diagnosis vigil commands
+                                    if cmd_lower.starts_with("/vigil") {
+                                        let subcmd = cmd_lower.strip_prefix("/vigil").unwrap_or("").trim();
+                                        let reply_text = match subcmd {
+                                            "disable" => {
+                                                // Persist to config file
+                                                let config_path = dirs::home_dir()
+                                                    .unwrap_or_default()
+                                                    .join(".temm1e")
+                                                    .join("vigil.toml");
+                                                std::fs::write(&config_path, "enabled = false\nconsent_given = false\nauto_report = false\n").ok();
+                                                "Vigil disabled. Re-enable by deleting ~/.temm1e/vigil.toml.".to_string()
+                                            }
+                                            "auto" => {
+                                                let config_path = dirs::home_dir()
+                                                    .unwrap_or_default()
+                                                    .join(".temm1e")
+                                                    .join("vigil.toml");
+                                                std::fs::write(&config_path, "enabled = true\nconsent_given = true\nauto_report = true\n").ok();
+                                                "Vigil auto-reporting enabled. I'll show a 60-second window before each report.".to_string()
+                                            }
+                                            "status" => {
+                                                let has_github = load_credentials_file()
+                                                    .is_some_and(|c| c.providers.iter().any(|p| p.name == "github"));
+                                                let consent_path = dirs::home_dir()
+                                                    .unwrap_or_default()
+                                                    .join(".temm1e")
+                                                    .join("vigil.toml");
+                                                let consent = std::fs::read_to_string(&consent_path)
+                                                    .unwrap_or_default()
+                                                    .contains("consent_given = true");
+                                                format!(
+                                                    "Tem Vigil Status:\n\
+                                                     - GitHub PAT: {}\n\
+                                                     - Consent: {}\n\
+                                                     - Log file: {}\n\n\
+                                                     Commands: /vigil auto, /vigil disable, /vigil status",
+                                                    if has_github { "configured" } else { "not set — run /addkey github" },
+                                                    if consent { "granted" } else { "not yet" },
+                                                    temm1e_observable::file_logger::current_log_path().display(),
+                                                )
+                                            }
+                                            _ => {
+                                                "Tem Vigil Commands:\n\
+                                                 - /vigil status — show current configuration\n\
+                                                 - /vigil auto — enable auto-reporting (with 60s review window)\n\
+                                                 - /vigil disable — disable all vigil\n\
+                                                 - /addkey github — add GitHub PAT for issue creation".to_string()
+                                            }
+                                        };
+                                        let reply = temm1e_core::types::message::OutboundMessage {
+                                            chat_id: msg.chat_id.clone(),
+                                            text: reply_text,
                                             reply_to: Some(msg.id.clone()),
                                             parse_mode: None,
                                         };
@@ -3564,6 +3654,47 @@ Just type a message to chat with the AI agent.",
                                             Ok(api_key_text) => {
                                                 // Treat the decrypted text as an API key
                                                 if let Some(cred) = detect_api_key(&api_key_text) {
+                                                    // GitHub PAT — not an LLM provider, handle separately
+                                                    if cred.provider == "github" {
+                                                        match temm1e_perpetuum::bug_reporter::check_pat_scopes(
+                                                            &reqwest::Client::new(), &cred.api_key,
+                                                        ).await {
+                                                            Ok((_, dangerous)) => {
+                                                                let mut reply_text = String::from("GitHub connected! I can now report bugs I find in myself.");
+                                                                if !dangerous.is_empty() {
+                                                                    reply_text = format!(
+                                                                        "Warning: this token has more permissions than needed: {}\n\
+                                                                         I only need `public_repo` scope.\n\
+                                                                         Create a minimal token at: github.com/settings/tokens/new\n\n\
+                                                                         Saved for now — I recommend replacing it with a minimal one.",
+                                                                        dangerous.join(", ")
+                                                                    );
+                                                                }
+                                                                if let Err(e) = save_credentials("github", &cred.api_key, "github", None).await {
+                                                                    tracing::error!(error = %e, "Failed to save GitHub PAT");
+                                                                }
+                                                                let reply = temm1e_core::types::message::OutboundMessage {
+                                                                    chat_id: msg.chat_id.clone(),
+                                                                    text: reply_text,
+                                                                    reply_to: Some(msg.id.clone()),
+                                                                    parse_mode: None,
+                                                                };
+                                                                send_with_retry(&*sender, reply).await;
+                                                            }
+                                                            Err(e) => {
+                                                                let reply = temm1e_core::types::message::OutboundMessage {
+                                                                    chat_id: msg.chat_id.clone(),
+                                                                    text: format!("GitHub PAT validation failed: {}", e),
+                                                                    reply_to: Some(msg.id.clone()),
+                                                                    parse_mode: None,
+                                                                };
+                                                                send_with_retry(&*sender, reply).await;
+                                                            }
+                                                        }
+                                                        is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                                        if let Ok(mut pq) = pending_for_worker.lock() { pq.remove(&worker_chat_id); }
+                                                        return;
+                                                    }
                                                     let model = default_model(cred.provider).to_string();
                                                     let effective_base_url = cred.base_url.clone().or_else(|| base_url.clone());
                                                     let test_config = temm1e_core::types::config::ProviderConfig {
@@ -3662,6 +3793,44 @@ Just type a message to chat with the AI agent.",
                                         // ── Detect new API key mid-conversation ────
                                         let msg_text_peek = msg.text.as_deref().unwrap_or("");
                                         if let Some(cred) = detect_api_key(msg_text_peek) {
+                                            // GitHub PAT — handle separately (not an LLM provider)
+                                            if cred.provider == "github" {
+                                                match temm1e_perpetuum::bug_reporter::check_pat_scopes(
+                                                    &reqwest::Client::new(), &cred.api_key,
+                                                ).await {
+                                                    Ok((_, dangerous)) => {
+                                                        let mut reply_text = String::from("GitHub connected! I can now report bugs I find in myself.");
+                                                        if !dangerous.is_empty() {
+                                                            reply_text = format!(
+                                                                "Warning: this token has more permissions than needed: {}\n\
+                                                                 I only need `public_repo` scope.\n\n\
+                                                                 Saved — but I recommend creating a minimal token.",
+                                                                dangerous.join(", ")
+                                                            );
+                                                        }
+                                                        save_credentials("github", &cred.api_key, "github", None).await.ok();
+                                                        let reply = temm1e_core::types::message::OutboundMessage {
+                                                            chat_id: msg.chat_id.clone(),
+                                                            text: reply_text,
+                                                            reply_to: Some(msg.id.clone()),
+                                                            parse_mode: None,
+                                                        };
+                                                        send_with_retry(&*sender, reply).await;
+                                                    }
+                                                    Err(e) => {
+                                                        let reply = temm1e_core::types::message::OutboundMessage {
+                                                            chat_id: msg.chat_id.clone(),
+                                                            text: format!("GitHub PAT validation failed: {}", e),
+                                                            reply_to: Some(msg.id.clone()),
+                                                            parse_mode: None,
+                                                        };
+                                                        send_with_retry(&*sender, reply).await;
+                                                    }
+                                                }
+                                                is_heartbeat_clone.store(false, Ordering::Relaxed);
+                                                if let Ok(mut pq) = pending_for_worker.lock() { pq.remove(&worker_chat_id); }
+                                                return;
+                                            }
                                             let model = default_model(cred.provider).to_string();
                                             let effective_base_url = cred.base_url.clone().or_else(|| base_url.clone());
 
@@ -5135,12 +5304,84 @@ Just type a message to chat with the AI agent.",
                          /browser close — Save sessions and close browser\n\
                          /browser sessions — List saved web sessions\n\
                          /browser forget <service> — Delete a saved session\n\
+                         /vigil — Bug reporter status and configuration\n\
+                         /addkey github — Add GitHub PAT for auto vigil\n\
                          /quit — Exit the CLI chat\n\n\
                          Just type a message to chat with the AI agent.\n",
                         env!("CARGO_PKG_VERSION"),
                         env!("GIT_HASH"),
                         env!("BUILD_DATE"),
                     );
+                    eprint!("temm1e> ");
+                    continue;
+                }
+
+                // /vigil — self-diagnosis vigil
+                if cmd_lower.starts_with("/vigil") {
+                    let subcmd = cmd_lower.strip_prefix("/vigil").unwrap_or("").trim();
+                    match subcmd {
+                        "disable" => {
+                            let config_path = dirs::home_dir()
+                                .unwrap_or_default()
+                                .join(".temm1e")
+                                .join("vigil.toml");
+                            std::fs::write(
+                                &config_path,
+                                "enabled = false\nconsent_given = false\nauto_report = false\n",
+                            )
+                            .ok();
+                            println!("Vigil disabled.");
+                        }
+                        "auto" => {
+                            let config_path = dirs::home_dir()
+                                .unwrap_or_default()
+                                .join(".temm1e")
+                                .join("vigil.toml");
+                            std::fs::write(
+                                &config_path,
+                                "enabled = true\nconsent_given = true\nauto_report = true\n",
+                            )
+                            .ok();
+                            println!("Vigil auto-reporting enabled.");
+                        }
+                        "status" => {
+                            let has_github = load_credentials_file()
+                                .is_some_and(|c| c.providers.iter().any(|p| p.name == "github"));
+                            let consent_path = dirs::home_dir()
+                                .unwrap_or_default()
+                                .join(".temm1e")
+                                .join("vigil.toml");
+                            let consent = std::fs::read_to_string(&consent_path)
+                                .unwrap_or_default()
+                                .contains("consent_given = true");
+                            println!(
+                                "\nTem Vigil Status:\n\
+                                 - GitHub PAT: {}\n\
+                                 - Consent: {}\n\
+                                 - Log file: {}\n",
+                                if has_github {
+                                    "configured"
+                                } else {
+                                    "not set — run /addkey github"
+                                },
+                                if consent {
+                                    "granted"
+                                } else {
+                                    "not yet — run /vigil auto"
+                                },
+                                temm1e_observable::file_logger::current_log_path().display(),
+                            );
+                        }
+                        _ => {
+                            println!(
+                                "\nTem Vigil Commands:\n\
+                                 /vigil status — show current configuration\n\
+                                 /vigil auto — enable auto-reporting\n\
+                                 /vigil disable — disable all vigil\n\
+                                 /addkey github — add GitHub PAT for issue creation\n"
+                            );
+                        }
+                    }
                     eprint!("temm1e> ");
                     continue;
                 }

@@ -25,7 +25,7 @@ members = [
 ]
 
 [workspace.package]
-version = "4.1.2"
+version = "4.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/nagisanzenin/temm1e"
@@ -77,6 +77,8 @@ clap = { version = "4", features = ["derive"] }
 # Logging & observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+tracing-appender = "0.2"
+urlencoding = "2"
 opentelemetry = "0.27"
 tracing-opentelemetry = "0.28"
 
@@ -178,6 +180,8 @@ base64.workspace = true
 rand.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+reqwest.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use temm1e_core::types::error::Temm1eError;
 
+use crate::bug_reporter;
 use crate::cognitive::LlmCaller;
 use crate::conscience::SelfWorkKind;
+use crate::log_scanner;
 use crate::store::Store;
 
 /// Execute a self-work activity during Sleep state.
@@ -26,6 +28,13 @@ pub async fn execute_self_work(
         SelfWorkKind::LogIntrospection => {
             if let Some(caller) = caller {
                 introspect_logs(store, caller).await
+            } else {
+                Ok("Skipped: no LLM caller available".to_string())
+            }
+        }
+        SelfWorkKind::Vigil => {
+            if let Some(caller) = caller {
+                run_vigil(store, caller).await
             } else {
                 Ok("Skipped: no LLM caller available".to_string())
             }
@@ -107,6 +116,167 @@ async fn introspect_logs(
 
     tracing::info!(target: "perpetuum", work = "log_introspection", "Log introspection complete");
     Ok(format!("Introspection: {insights}"))
+}
+
+/// Load the GitHub PAT from credentials.toml (if configured).
+fn load_github_token() -> Option<String> {
+    let creds = temm1e_core::config::credentials::load_credentials_file()?;
+    let github = creds.providers.iter().find(|p| p.name == "github")?;
+    github.keys.first().cloned()
+}
+
+/// Check if bug reporting consent has been given.
+fn is_consent_given() -> bool {
+    let path = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".temm1e")
+        .join("vigil.toml");
+    std::fs::read_to_string(&path)
+        .unwrap_or_default()
+        .contains("consent_given = true")
+}
+
+/// Bug review: scan logs for recurring errors, triage via LLM, report to GitHub.
+async fn run_vigil(store: &Arc<Store>, caller: &Arc<dyn LlmCaller>) -> Result<String, Temm1eError> {
+    // Check rate limit (max 1 report per 6 hours)
+    if let Ok(notes) = store.get_volition_notes(20).await {
+        for note in &notes {
+            if let Some(ts_str) = note.strip_prefix("bug_review_last:") {
+                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts_str.trim()) {
+                    let elapsed = chrono::Utc::now() - dt.with_timezone(&chrono::Utc);
+                    if elapsed < chrono::Duration::hours(6) {
+                        return Ok("Vigil: rate limited, skipping".to_string());
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    // Scan logs
+    let log_path = temm1e_observable::file_logger::current_log_path();
+    let errors = log_scanner::scan_recent_errors(&log_path, 6, 2);
+
+    if errors.is_empty() {
+        return Ok("Vigil: no recurring errors found".to_string());
+    }
+
+    // Load GitHub token (if not configured, triage only — no reporting)
+    let github_token = load_github_token();
+    let can_report = github_token.is_some() && is_consent_given();
+
+    // Triage each error group via LLM
+    let system = "You are reviewing error logs from TEMM1E, an AI agent runtime.";
+    let mut bugs_found = 0;
+    let mut reported = 0;
+    let client = reqwest::Client::new();
+    let version = env!("CARGO_PKG_VERSION");
+    let os_info = format!("{} {}", std::env::consts::OS, std::env::consts::ARCH);
+
+    for error in &errors {
+        let prompt = bug_reporter::build_triage_prompt(error);
+        match caller.call(Some(system), &prompt).await {
+            Ok(response) => {
+                let category = bug_reporter::parse_triage_category(&response);
+                if category == "BUG" {
+                    bugs_found += 1;
+                    tracing::info!(
+                        target: "perpetuum",
+                        signature = %error.signature,
+                        count = error.count,
+                        "Vigil: found reportable bug"
+                    );
+
+                    // Try to report to GitHub if configured
+                    if can_report {
+                        if let Some(ref token) = github_token {
+                            // Dedup — skip if already reported
+                            match bug_reporter::is_duplicate(&client, token, &error.signature).await
+                            {
+                                Ok(true) => {
+                                    tracing::debug!(
+                                        target: "perpetuum",
+                                        signature = %error.signature,
+                                        "Vigil: already reported, skipping"
+                                    );
+                                }
+                                Ok(false) => {
+                                    // Scrub and create issue
+                                    let body = bug_reporter::format_issue_body(
+                                        error, &response, version, &os_info,
+                                    );
+                                    let scrubbed = temm1e_tools::credential_scrub::scrub_for_report(
+                                        &body,
+                                        &[],
+                                    );
+                                    let scrubbed =
+                                        temm1e_tools::credential_scrub::entropy_scrub(&scrubbed);
+
+                                    let title = format!(
+                                        "[BUG] {}",
+                                        &error.message[..error.message.len().min(70)]
+                                    );
+
+                                    match bug_reporter::create_issue(
+                                        &client, token, &title, &scrubbed,
+                                    )
+                                    .await
+                                    {
+                                        Ok(url) => {
+                                            reported += 1;
+                                            tracing::info!(
+                                                target: "perpetuum",
+                                                url = %url,
+                                                "Vigil: issue created"
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                error = %e,
+                                                "Vigil: GitHub issue creation failed"
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        error = %e,
+                                        "Vigil: dedup check failed"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Vigil: LLM triage failed for one error");
+            }
+        }
+    }
+
+    tracing::info!(
+        target: "perpetuum",
+        total_errors = errors.len(),
+        bugs = bugs_found,
+        reported,
+        "Vigil complete"
+    );
+
+    // Record timestamp to enforce rate limit
+    store
+        .save_volition_note(
+            &format!("bug_review_last:{}", chrono::Utc::now().to_rfc3339()),
+            "self_work",
+        )
+        .await?;
+
+    Ok(format!(
+        "Vigil: scanned {} error groups, {} bugs found, {} reported to GitHub",
+        errors.len(),
+        bugs_found,
+        reported
+    ))
 }
 
 #[cfg(test)]

@@ -80,6 +80,16 @@ static PROVIDER_PATTERNS: LazyLock<Vec<ProviderPattern>> = LazyLock::new(|| {
             key: "slack_user_token",
             provider: "slack",
         },
+        ProviderPattern {
+            regex: Regex::new(r"(ghp_[A-Za-z0-9]{36,})").unwrap(),
+            key: "github_pat",
+            provider: "github",
+        },
+        ProviderPattern {
+            regex: Regex::new(r"(github_pat_[A-Za-z0-9_]{20,})").unwrap(),
+            key: "github_fine_grained_pat",
+            provider: "github",
+        },
     ]
 });
 

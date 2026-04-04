@@ -6866,7 +6866,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -6879,6 +6879,7 @@ dependencies = [
  "hex",
  "openssl",
  "rand 0.8.5",
+ "reqwest",
  "serde",
  "serde_json",
  "temm1e-agent",
@@ -6903,13 +6904,14 @@ dependencies = [
  "tokio-util",
  "toml 0.8.23",
  "tracing",
+ "tracing-appender",
  "tracing-subscriber",
  "uuid",
 ]
 
 [[package]]
 name = "temm1e-agent"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -6934,7 +6936,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-automation"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "chrono",
  "temm1e-core",
@@ -6945,7 +6947,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-channels"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -6980,7 +6982,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-codex-oauth"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -7001,7 +7003,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-core"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -7024,7 +7026,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-distill"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7043,7 +7045,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-filestore"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "aws-config",
@@ -7061,7 +7063,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-gateway"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -7088,7 +7090,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-gaze"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -7104,7 +7106,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-hive"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7123,7 +7125,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-mcp"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "dirs",
@@ -7139,7 +7141,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-memory"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7157,26 +7159,30 @@ dependencies = [
 
 [[package]]
 name = "temm1e-observable"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
+ "chrono",
+ "dirs",
  "opentelemetry",
  "serde_json",
  "temm1e-core",
  "tokio",
  "tracing",
+ "tracing-appender",
  "tracing-opentelemetry",
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "temm1e-perpetuum"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "chrono",
  "chrono-tz",
  "cron",
+ "dirs",
  "futures",
  "reqwest",
  "scraper",
@@ -7185,16 +7191,19 @@ dependencies = [
  "sha2",
  "sqlx",
  "temm1e-core",
+ "temm1e-observable",
  "temm1e-test-utils",
+ "temm1e-tools",
  "tokio",
  "tokio-util",
  "tracing",
+ "urlencoding",
  "uuid",
 ]
 
 [[package]]
 name = "temm1e-providers"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -7210,7 +7219,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-skills"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "dirs",
  "serde",
@@ -7223,7 +7232,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-test-utils"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -7238,7 +7247,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-tools"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -7263,7 +7272,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-tui"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7299,7 +7308,7 @@ dependencies = [
 
 [[package]]
 name = "temm1e-vault"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -7758,6 +7767,18 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-appender"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "786d480bce6247ab75f005b14ae1624ad978d3029d9113f0a22fa1ac773faeaf"
+dependencies = [
+ "crossbeam-channel",
+ "thiserror 2.0.18",
+ "time",
+ "tracing-subscriber",
 ]
 
 [[package]]
