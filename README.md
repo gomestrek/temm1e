@@ -389,6 +389,10 @@ Tem is no longer a request-response agent. Perpetuum makes Tem a **persistent, t
 
 ### Tem Vigil — Self-Diagnosing Bug Reporter
 
+<p align="center">
+  <img src="assets/tem-vigil-overview.png" alt="Tem Vigil Overview" width="100%">
+</p>
+
 Tem watches its own health. During Perpetuum Sleep, Vigil scans the persistent log file for recurring errors, triages them via LLM, and — with your permission — files structured bug reports on GitHub.
 
 **This is not a crash reporter.** It's an AI agent that self-diagnoses failures and tells its developers what went wrong — without you lifting a finger.
