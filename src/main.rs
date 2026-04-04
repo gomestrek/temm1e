@@ -1202,30 +1202,41 @@ async fn main() -> Result<()> {
     #[cfg(not(feature = "tui"))]
     let _is_tui = false;
 
+    // Clean up old log files (7-day retention, 100 MB budget)
+    temm1e_observable::file_logger::cleanup_logs(7);
+
+    // Set up tracing: stdout + persistent log file
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let file_appender = temm1e_observable::file_logger::create_file_appender();
+    let (file_writer, _log_guard) = tracing_appender::non_blocking(file_appender);
+
     if _is_tui {
-        // TUI mode: write logs to ~/.temm1e/tui.log so they don't corrupt the display
-        let log_dir = dirs::home_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join(".temm1e");
-        std::fs::create_dir_all(&log_dir).ok();
-        if let Ok(log_file) = std::fs::File::create(log_dir.join("tui.log")) {
-            tracing_subscriber::fmt()
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-                )
-                .with_writer(std::sync::Mutex::new(log_file))
-                .with_ansi(false)
-                .json()
-                .init();
-        }
-    } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        // TUI mode: file only (no stdout — would corrupt the display)
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_ansi(false)
+                    .with_writer(file_writer),
             )
-            .json()
+            .init();
+    } else {
+        // CLI/daemon mode: stdout + file
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(tracing_subscriber::fmt::layer().json())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_ansi(false)
+                    .with_writer(file_writer),
+            )
             .init();
     }
 

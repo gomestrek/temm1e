@@ -12,6 +12,7 @@
 //! - If `otel_enabled` **and** `otel_endpoint` are set → [`OtelExporter`].
 //! - Otherwise → [`MetricsCollector`].
 
+pub mod file_logger;
 pub mod metrics;
 pub mod otel;
 

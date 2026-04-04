@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use temm1e_core::types::error::Temm1eError;
 
+use crate::bug_reporter;
 use crate::cognitive::LlmCaller;
 use crate::conscience::SelfWorkKind;
+use crate::log_scanner;
 use crate::store::Store;
 
 /// Execute a self-work activity during Sleep state.
@@ -26,6 +28,13 @@ pub async fn execute_self_work(
         SelfWorkKind::LogIntrospection => {
             if let Some(caller) = caller {
                 introspect_logs(store, caller).await
+            } else {
+                Ok("Skipped: no LLM caller available".to_string())
+            }
+        }
+        SelfWorkKind::BugReview => {
+            if let Some(caller) = caller {
+                review_bugs(store, caller).await
             } else {
                 Ok("Skipped: no LLM caller available".to_string())
             }
@@ -107,6 +116,80 @@ async fn introspect_logs(
 
     tracing::info!(target: "perpetuum", work = "log_introspection", "Log introspection complete");
     Ok(format!("Introspection: {insights}"))
+}
+
+/// Bug review: scan logs for recurring errors, triage via LLM, report to GitHub.
+async fn review_bugs(
+    store: &Arc<Store>,
+    caller: &Arc<dyn LlmCaller>,
+) -> Result<String, Temm1eError> {
+    // Check rate limit (max 1 report per 6 hours)
+    if let Ok(notes) = store.get_volition_notes(20).await {
+        for note in &notes {
+            if let Some(ts_str) = note.strip_prefix("bug_review_last:") {
+                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts_str.trim()) {
+                    let elapsed = chrono::Utc::now() - dt.with_timezone(&chrono::Utc);
+                    if elapsed < chrono::Duration::hours(6) {
+                        return Ok("BugReview: rate limited, skipping".to_string());
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    // Scan logs
+    let log_path = temm1e_observable::file_logger::current_log_path();
+    let errors = log_scanner::scan_recent_errors(&log_path, 6, 2);
+
+    if errors.is_empty() {
+        return Ok("BugReview: no recurring errors found".to_string());
+    }
+
+    // Triage each error group via LLM
+    let system = "You are reviewing error logs from TEMM1E, an AI agent runtime.";
+    let mut bugs_found = 0;
+    for error in &errors {
+        let prompt = bug_reporter::build_triage_prompt(error);
+        match caller.call(Some(system), &prompt).await {
+            Ok(response) => {
+                let category = bug_reporter::parse_triage_category(&response);
+                if category == "BUG" {
+                    bugs_found += 1;
+                    tracing::info!(
+                        target: "perpetuum",
+                        signature = %error.signature,
+                        count = error.count,
+                        "BugReview: found reportable bug"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "BugReview: LLM triage failed for one error");
+            }
+        }
+    }
+
+    tracing::info!(
+        target: "perpetuum",
+        total_errors = errors.len(),
+        bugs = bugs_found,
+        "BugReview complete"
+    );
+
+    // Record timestamp to enforce rate limit
+    store
+        .save_volition_note(
+            &format!("bug_review_last:{}", chrono::Utc::now().to_rfc3339()),
+            "self_work",
+        )
+        .await?;
+
+    Ok(format!(
+        "BugReview: scanned {} error groups, {} classified as bugs",
+        errors.len(),
+        bugs_found
+    ))
 }
 
 #[cfg(test)]

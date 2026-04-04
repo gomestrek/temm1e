@@ -6903,6 +6903,7 @@ dependencies = [
  "tokio-util",
  "toml 0.8.23",
  "tracing",
+ "tracing-appender",
  "tracing-subscriber",
  "uuid",
 ]
@@ -7160,11 +7161,14 @@ name = "temm1e-observable"
 version = "4.1.2"
 dependencies = [
  "async-trait",
+ "chrono",
+ "dirs",
  "opentelemetry",
  "serde_json",
  "temm1e-core",
  "tokio",
  "tracing",
+ "tracing-appender",
  "tracing-opentelemetry",
  "tracing-subscriber",
 ]
@@ -7185,10 +7189,12 @@ dependencies = [
  "sha2",
  "sqlx",
  "temm1e-core",
+ "temm1e-observable",
  "temm1e-test-utils",
  "tokio",
  "tokio-util",
  "tracing",
+ "urlencoding",
  "uuid",
 ]
 
@@ -7758,6 +7764,18 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-appender"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "786d480bce6247ab75f005b14ae1624ad978d3029d9113f0a22fa1ac773faeaf"
+dependencies = [
+ "crossbeam-channel",
+ "thiserror 2.0.18",
+ "time",
+ "tracing-subscriber",
 ]
 
 [[package]]

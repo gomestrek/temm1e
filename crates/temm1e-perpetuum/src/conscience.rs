@@ -48,6 +48,7 @@ pub enum SelfWorkKind {
     LogIntrospection,
     SessionCleanup,
     BlueprintRefinement,
+    BugReview,
 }
 
 impl SelfWorkKind {
@@ -58,11 +59,15 @@ impl SelfWorkKind {
             Self::LogIntrospection => "log_introspection",
             Self::SessionCleanup => "session_cleanup",
             Self::BlueprintRefinement => "blueprint_refinement",
+            Self::BugReview => "bug_review",
         }
     }
 
     pub fn uses_llm(&self) -> bool {
-        matches!(self, Self::FailureAnalysis | Self::LogIntrospection)
+        matches!(
+            self,
+            Self::FailureAnalysis | Self::LogIntrospection | Self::BugReview
+        )
     }
 }
 

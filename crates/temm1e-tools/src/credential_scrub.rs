@@ -63,6 +63,108 @@ pub fn scrub(text: &str, known_values: &[&str]) -> String {
     result
 }
 
+/// Matches high-entropy token-like strings (20+ alphanumeric chars).
+static HIGH_ENTROPY_TOKEN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[A-Za-z0-9+/=_\-]{20,}").expect("invalid HIGH_ENTROPY_TOKEN regex")
+});
+
+/// UUID pattern — high entropy but not a secret.
+static UUID_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+        .expect("invalid UUID_PATTERN regex")
+});
+
+/// Home directory patterns — redact usernames from paths.
+static HOME_PATH_UNIX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)/(?:Users|home)/[^/\s]+/").expect("invalid HOME_PATH regex"));
+
+static HOME_PATH_WIN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)[A-Z]:\\Users\\[^\\]+\\").expect("invalid HOME_PATH_WIN regex")
+});
+
+static IP_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}").expect("invalid IP_PATTERN regex")
+});
+
+/// Shannon entropy of a string.
+fn shannon_entropy(s: &str) -> f64 {
+    let len = s.len() as f64;
+    if len == 0.0 {
+        return 0.0;
+    }
+    let mut freq = [0u32; 256];
+    for b in s.bytes() {
+        freq[b as usize] += 1;
+    }
+    freq.iter()
+        .filter(|&&c| c > 0)
+        .map(|&c| {
+            let p = c as f64 / len;
+            -p * p.log2()
+        })
+        .sum()
+}
+
+/// Extended scrubbing for bug reports — strips paths with usernames and IPs.
+pub fn scrub_for_report(text: &str, known_values: &[&str]) -> String {
+    let mut result = scrub(text, known_values);
+
+    // Redact home directory paths
+    result = HOME_PATH_UNIX.replace_all(&result, "~/").to_string();
+    result = HOME_PATH_WIN.replace_all(&result, r"~\").to_string();
+
+    // Redact IP addresses
+    result = IP_PATTERN.replace_all(&result, "[REDACTED_IP]").to_string();
+
+    result
+}
+
+/// Entropy-based secret detection for unknown token formats.
+///
+/// Catches high-entropy strings that regex-based scrubbing misses.
+/// Uses TruffleHog/detect-secrets thresholds: 4.5 bits for base64/alphanumeric, 3.0 for hex.
+/// Applied only to bug report text (not all outbound messages).
+pub fn entropy_scrub(text: &str) -> String {
+    // Cap input to prevent excessive scanning
+    let capped = if text.len() > 65536 {
+        &text[..text
+            .char_indices()
+            .take_while(|(i, _)| *i <= 65536)
+            .last()
+            .map(|(i, _)| i)
+            .unwrap_or(0)]
+    } else {
+        text
+    };
+
+    let mut result = capped.to_string();
+
+    for m in HIGH_ENTROPY_TOKEN.find_iter(capped) {
+        let candidate = m.as_str();
+
+        // Skip UUIDs
+        if UUID_PATTERN.is_match(candidate) {
+            continue;
+        }
+
+        let entropy = shannon_entropy(candidate);
+        let len = candidate.len();
+
+        // Hex-only strings: lower threshold (3.0)
+        let is_hex = candidate
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() || c == '-' || c == '_');
+        let threshold = if is_hex { 3.0 } else { 4.5 };
+        let min_len = if is_hex { 20 } else { 30 };
+
+        if entropy >= threshold && len >= min_len {
+            result = result.replace(candidate, "[REDACTED_HIGH_ENTROPY]");
+        }
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,5 +366,82 @@ mod tests {
         assert!(!result.contains("secret123"));
         // Should have two [REDACTED] occurrences
         assert_eq!(result.matches("[REDACTED]").count(), 2);
+    }
+
+    // ── scrub_for_report tests ──
+
+    #[test]
+    fn scrub_for_report_redacts_unix_home_paths() {
+        let text = "/Users/john/Documents/Github/skyclaw/src/main.rs:42";
+        let result = scrub_for_report(text, &[]);
+        assert_eq!(result, "~/Documents/Github/skyclaw/src/main.rs:42");
+    }
+
+    #[test]
+    fn scrub_for_report_redacts_linux_home_paths() {
+        let text = "/home/developer/project/file.rs:10";
+        let result = scrub_for_report(text, &[]);
+        assert_eq!(result, "~/project/file.rs:10");
+    }
+
+    #[test]
+    fn scrub_for_report_redacts_ip() {
+        let text = "Connected to 192.168.1.100:8080";
+        let result = scrub_for_report(text, &[]);
+        assert!(result.contains("[REDACTED_IP]"));
+        assert!(!result.contains("192.168"));
+    }
+
+    // ── entropy_scrub tests ──
+
+    #[test]
+    fn entropy_catches_unknown_api_key() {
+        // High-entropy alphanumeric string (>4.5 bits, >30 chars)
+        let text = "token: xK9mR2pL5wQ8nJ3vF6hT1yU4sA7dG0bE9cW2iO5kN8jM";
+        let result = entropy_scrub(text);
+        assert!(
+            result.contains("[REDACTED_HIGH_ENTROPY]"),
+            "High-entropy token should be redacted, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn entropy_preserves_normal_text() {
+        let text = "The quick brown fox jumps over the lazy dog";
+        let result = entropy_scrub(text);
+        assert_eq!(result, text);
+    }
+
+    #[test]
+    fn entropy_preserves_short_strings() {
+        let text = "commit: abc123def456";
+        let result = entropy_scrub(text);
+        assert!(result.contains("abc123def456"));
+    }
+
+    #[test]
+    fn entropy_preserves_file_paths() {
+        let text = "at crates/temm1e-agent/src/runtime.rs:407";
+        let result = entropy_scrub(text);
+        // Path segments are short — should not trigger
+        assert!(result.contains("temm1e-agent"));
+    }
+
+    #[test]
+    fn shannon_entropy_empty() {
+        assert_eq!(shannon_entropy(""), 0.0);
+    }
+
+    #[test]
+    fn shannon_entropy_single_char() {
+        assert_eq!(shannon_entropy("aaaa"), 0.0);
+    }
+
+    #[test]
+    fn shannon_entropy_high_for_random() {
+        // 26 unique chars — high entropy
+        let high = "abcdefghijklmnopqrstuvwxyz";
+        assert!(shannon_entropy(high) > 4.0);
     }
 }

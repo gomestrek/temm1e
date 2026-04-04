@@ -145,7 +145,7 @@ pub fn detect_api_key(text: &str) -> Option<DetectedCredential> {
         if p != "http" && p != "https" {
             match p.as_str() {
                 "anthropic" | "openai" | "gemini" | "grok" | "xai" | "openrouter" | "minimax"
-                | "zai" | "zhipu" | "ollama" => {
+                | "zai" | "zhipu" | "ollama" | "github" | "gh" => {
                     if key.len() >= 8 && !is_placeholder_key(key) {
                         return Some(DetectedCredential {
                             provider: match p.as_str() {
@@ -157,6 +157,7 @@ pub fn detect_api_key(text: &str) -> Option<DetectedCredential> {
                                 "minimax" => "minimax",
                                 "zai" | "zhipu" => "zai",
                                 "ollama" => "ollama",
+                                "github" | "gh" => "github",
                                 _ => unreachable!(),
                             },
                             api_key: key.to_string(),
@@ -172,6 +173,13 @@ pub fn detect_api_key(text: &str) -> Option<DetectedCredential> {
     // Format 1: Auto-detect from key prefix
     if is_placeholder_key(trimmed) {
         return None;
+    }
+    if trimmed.starts_with("ghp_") || trimmed.starts_with("github_pat_") {
+        return Some(DetectedCredential {
+            provider: "github",
+            api_key: trimmed.to_string(),
+            base_url: None,
+        });
     }
     if trimmed.starts_with("sk-ant-") {
         Some(DetectedCredential {
