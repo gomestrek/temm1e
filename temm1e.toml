@@ -7,9 +7,9 @@ port = 8080
 tls = false
 
 [provider]
-name = "anthropic"
-api_key = "${ANTHROPIC_API_KEY}"
-model = "claude-sonnet-4-6"
+name = "openrouter"
+api_key = "${OPENROUTER_API_KEY}"
+model = "google/gemma-4-26b-a4b-it"
 
 [agent]
 # max_spend_usd = 0.0  # 0.0 = unlimited (default). Set a value to cap per-process spend.
