@@ -3,7 +3,7 @@ mode = "auto"
 
 [gateway]
 host = "0.0.0.0"
-port = 3100
+port = 8080
 tls = false
 
 [provider]
