@@ -75,6 +75,7 @@ RUN mkdir -p /data
 WORKDIR /app
 
 COPY --from=builder /app/target/release/temm1e ./temm1e
+COPY temm1e.toml ./temm1e.toml
 
 # Gateway port
 EXPOSE 8080
